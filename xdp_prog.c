@@ -4,8 +4,9 @@
 #include <uapi/linux/ip.h>
 #include <uapi/linux/udp.h>
 #include <uapi/linux/in.h>
+#define MAX_UDP_LENGTH 1500
 
-#define MAX_UDP_LENGTH 1500 // MTU
+//#define DEBUG 1
 
 struct backend_t {
     u32 ip;   // network byte order
@@ -32,7 +33,7 @@ BPF_ARRAY(filter_port, u16, 1);
 
 
 // device map for xdp_redirect (filled from user space)
-// BPF_DEVMAP(tx_port, 1);
+BPF_DEVMAP(tx_port, 1);
 
 // Mac address of the load balancer
 struct macaddr {
@@ -41,19 +42,15 @@ struct macaddr {
 
 BPF_ARRAY(lb_mac, struct macaddr, 1);
 
+
 struct event {
     int pkt_size;
 };
 
 
-static __always_inline __u16 csum_fold_helper(__u64 csum)
-{
-    int i;
-    for (i = 0; i < 4; i++)
-    {
-        if (csum >> 16)
-            csum = (csum & 0xffff) + (csum >> 16);
-    }
+static __always_inline __u16 csum_fold_helper(__u32 csum) {
+    csum = (csum >> 16) + (csum & 0xffff);
+    csum += csum >> 16;
     return ~csum;
 }
 
@@ -65,7 +62,7 @@ static __always_inline __u16 iph_csum(struct iphdr *iph)
 }
 
 
-static __always_inline __u16 calculate_ip_checksum(struct iphdr *ip) {
+static __always_inline __u16 iph_csum2(struct iphdr *ip) {
 
     ip->check = 0;
     u32 csum = 0;
@@ -86,16 +83,21 @@ static __always_inline __u16 calculate_ip_checksum(struct iphdr *ip) {
 __attribute__((__always_inline__))
 static inline __u16 caludpcsum(struct iphdr *ip, struct udphdr *udp, void *data_end)
 {
-    u32 csum_buffer = 0;
-    u16 *buf = (void *)udp;
+    __u32 csum_buffer = 0;
+    __u16 *buf = (void *)udp;
 
     // Compute pseudo-header checksum
-    csum_buffer += (u16)ip->saddr;
-    csum_buffer += (u16)(ip->saddr >> 16);
-    csum_buffer += (u16)ip->daddr;
-    csum_buffer += (u16)(ip->daddr >> 16);
-    csum_buffer += (u16)ip->protocol << 8;
-    csum_buffer += udp->len;
+    csum_buffer += (__u16)ip->saddr;
+    csum_buffer += (__u16)(ip->saddr >> 16);
+    csum_buffer += (__u16)ip->daddr;
+    csum_buffer += (__u16)(ip->daddr >> 16);
+    csum_buffer += (__u16)ip->protocol << 8;
+    csum_buffer += bpf_ntohs(udp->len);
+
+#ifdef DEBUG
+    bpf_trace_printk("UDP payload size: %d bytes", bpf_ntohs(udp->len));
+    bpf_trace_printk("csum_buffer: 0x%x", csum_buffer);
+#endif
 
     // Compute checksum on udp header + payload
     for (int i = 0; i < MAX_UDP_LENGTH; i += 2) {
@@ -103,25 +105,29 @@ static inline __u16 caludpcsum(struct iphdr *ip, struct udphdr *udp, void *data_
         break;
       }
 
+#ifdef DEBUG
       bpf_trace_printk("0x%x", *buf);
-
+#endif
       csum_buffer += *buf;
       buf++;
     }
+
     if ((void *)buf + 1 <= data_end) {
       // In case payload is not 2 bytes aligned
-      csum_buffer += *(u8 *)buf;
+      csum_buffer += *(__u8 *)buf;
     }
 
-    u16 csum = (u16)csum_buffer + (u16)(csum_buffer >> 16);
-    csum = ~csum;
 
-    return csum;
+    __u16 csum = (__u16)csum_buffer + (__u16)(csum_buffer >> 16);
+    csum = csum & 0xFFFF;
+
+    return (__u16) csum;
 }
+
 
 int xdp_prog(struct xdp_md *ctx) {
     int pkt_size = (int)(ctx->data_end - ctx->data);
-    struct event *event = rb.ringbuf_reserve(sizeof(struct event));
+    /*struct event *event = rb.ringbuf_reserve(sizeof(struct event));
     if (!event) {
         bpf_trace_printk("Cannot allocate %d bytes from ring buffer\n", sizeof(struct event));
         return XDP_PASS;
@@ -130,7 +136,7 @@ int xdp_prog(struct xdp_md *ctx) {
 
     // Send packet size to userspace ring buffer
     rb.ringbuf_submit(event, 0);
-
+    */
 
     void *data_end = (void *)(long)ctx->data_end;
     void *data     = (void *)(long)ctx->data;
@@ -179,7 +185,9 @@ int xdp_prog(struct xdp_md *ctx) {
     if (fip && *fip != 0 && ip->daddr != *fip) return XDP_PASS;
     if (fp && *fp != 0 && udp->dest != *fp) return XDP_PASS;
 
+#ifdef DEBUG
     bpf_trace_printk("Filter IP: 0x%x", bpf_ntohl(*fip));
+#endif
 
     //unsigned char *payload = (unsigned char *)(udp + 1);
     //bpf_trace_printk("UDP Data: %s", payload);
@@ -204,7 +212,9 @@ int xdp_prog(struct xdp_md *ctx) {
         return XDP_PASS;
     }
 
+#ifdef DEBUG
     bpf_trace_printk("Backend count: %d", *backends_cnt);
+#endif
 
     // choose backend index (round robin)
     u32 index = (*pktcnt) % (*backends_cnt);
@@ -215,16 +225,20 @@ int xdp_prog(struct xdp_md *ctx) {
         return XDP_PASS;
     }
 
+#ifdef DEBUG
     bpf_trace_printk("Using backend %d:%d", be->ip, be->port);
     bpf_trace_printk("Backend mac (hi): %x:%x:%x", be->mac[0], be->mac[1], be->mac[2]);
     bpf_trace_printk("Backend mac (lo): %x:%x:%x", be->mac[3], be->mac[4], be->mac[5]);
+#endif
 
     // L3 rewrite
     ip->daddr = be->ip;
     ip->saddr = *fip;
     udp->dest = be->port;
 
+#ifdef DEBUG
     bpf_trace_printk("Redirecting packet to new IP 0x%x from IP 0x%x", bpf_ntohl(ip->daddr), bpf_ntohl(ip->saddr));
+#endif
 
     // L2 rewrite (dst + src MAC)
     __builtin_memcpy(eth->h_dest, be->mac, ETH_ALEN);
@@ -234,8 +248,10 @@ int xdp_prog(struct xdp_md *ctx) {
     if (mac) {
         __builtin_memcpy(eth->h_source, mac, ETH_ALEN);
 
+#ifdef DEBUG
         bpf_trace_printk("lb_mac (hi): %x:%x:%x", eth->h_source[0], eth->h_source[1], eth->h_source[2]);
         bpf_trace_printk("lb_mac (lo): %x:%x:%x", eth->h_source[3], eth->h_source[4], eth->h_source[5]);
+#endif
 
     } else {
         // Unexpected
@@ -245,22 +261,23 @@ int xdp_prog(struct xdp_md *ctx) {
 
     // Recalculate IP packet checksum
     ip->check = iph_csum(ip);
-    bpf_trace_printk("IP Checksum #1: 0x%x", ip->check);
 
-    //ip->check = calculate_ip_checksum(ip);
+#ifdef DEBUG
+    bpf_trace_printk("IP Checksum #1: 0x%x", ip->check);
+#endif
+
+    //ip->check = iph_csum(ip);
     //bpf_trace_printk("IP Checksum #2: 0x%x", ip->check);
 
     // Calculate UDP packet checksum (optional)
     udp->check = 0;
-    udp->check = caludpcsum(ip, udp, data_end);  // must
+    //udp->check = caludpcsum(ip, udp, data_end);
+    //bpf_trace_printk("UDP Checksum: 0x%x", udp->check);
 
-    bpf_trace_printk("UDP Checksum: 0x%x", udp->check);
+    //unsigned char *payload = (unsigned char *)(udp + 1);
+    //bpf_trace_printk("UDP Data: %s", payload);
 
-    unsigned char *payload = (unsigned char *)(udp + 1);
-    bpf_trace_printk("UDP Data: %s", payload);
-    //bpf_trace_printk("UDP end byte: 0x%x", payload[udp->len-1]);
-
-    return XDP_TX;
-    //return tx_port.redirect_map(0, 0);
+    //return XDP_TX;
+    return tx_port.redirect_map(0, 0);
 
 }
