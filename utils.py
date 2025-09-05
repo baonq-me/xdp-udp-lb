@@ -2,7 +2,8 @@ import socket
 import fcntl
 import struct
 from pyroute2 import IPRoute
-
+import json
+import ast
 
 def get_ip_address(ifname: str) -> str:
     s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
@@ -50,3 +51,38 @@ def get_route_mac(ip):
         "mac": mac,
         "mac_array": mac_array
     }
+
+
+def get_link_attrs(attrs):
+    try:
+        return json.loads(str(attrs).replace('\'', '\"'))
+    except:
+        try:
+            return dict(ast.literal_eval(str(attrs))["attrs"])
+        except:
+            try:
+                return str(attrs)
+            except:
+                return "can not parse data"
+
+
+def get_link_info(iface):
+    ipr = IPRoute()
+    ifindex = socket.if_nametoindex(iface)
+
+    links = ipr.get_links(ifindex)
+    ipr.close()
+
+    info = {}
+
+    for link in links:
+        for attr in link.get("attrs", []):
+            info[attr[0]] = get_link_attrs(attr[1])
+
+    if "IFLA_AF_SPEC" in info and "AF_INET6" in info["IFLA_AF_SPEC"]:
+        af_inet6 = {}
+        for attr in info["IFLA_AF_SPEC"]["AF_INET6"]["attrs"]:
+            af_inet6[attr[0]] = attr[1]
+        info["IFLA_AF_SPEC"]["AF_INET6"] = af_inet6
+
+    return info

@@ -16,7 +16,7 @@ struct backend_t {
 };
 
 // Allocate 4096 page (4096 * 4KB page size = 16MB buffer size)
-BPF_RINGBUF_OUTPUT(rb, 4096);
+//BPF_RINGBUF_OUTPUT(rb, 4096);
 
 // Store backend configs
 BPF_ARRAY(backends, struct backend_t, 16);
@@ -29,11 +29,14 @@ BPF_ARRAY(counter, u64, 1);
 
 // filter: only match this dest ip/port
 BPF_ARRAY(filter_ip, u32, 1);
-BPF_ARRAY(filter_port, u16, 1);
+BPF_ARRAY(filter_port, u16, 64);
 
+BPF_HASH(filter_ports, __u16, __u8);
 
 // device map for xdp_redirect (filled from user space)
 BPF_DEVMAP(tx_port, 1);
+
+BPF_CPUMAP(cpumap, __MAX_CPU__);
 
 // Mac address of the load balancer
 struct macaddr {
@@ -171,19 +174,29 @@ int xdp_prog(struct xdp_md *ctx) {
         return XDP_PASS;
     }
 
-    // check filter
+    // Filter IP
     u32 fk = 0;
-    u32 pk = 0;
     u32 *fip = filter_ip.lookup(&fk);
-    u16 *fp  = filter_port.lookup(&pk);
-
-    if (!fip || !fp) {
-        bpf_trace_printk("Missing filter");
+    if (!fip) {
+#ifdef DEBUG
+        bpf_trace_printk("Not match filter ip");
+#endif
         return XDP_PASS;
     }
 
-    if (fip && *fip != 0 && ip->daddr != *fip) return XDP_PASS;
-    if (fp && *fp != 0 && udp->dest != *fp) return XDP_PASS;
+    // Filter port
+    u16 dport = __constant_ntohs(udp->dest);
+#ifdef DEBUG
+    bpf_trace_printk("Checking port %d", dport);
+#endif
+
+    __u8 *exists = filter_ports.lookup(&dport);
+    if (!exists) {
+#ifdef DEBUG
+        bpf_trace_printk("Not match filter port");
+#endif
+        return XDP_PASS;
+    }
 
 #ifdef DEBUG
     bpf_trace_printk("Filter IP: 0x%x", bpf_ntohl(*fip));
@@ -208,7 +221,9 @@ int xdp_prog(struct xdp_md *ctx) {
     u64 *backends_cnt = backend_counter.lookup(&i);
     if (!backends_cnt) {
         // No backends is configured
+#ifdef DEBUG
         bpf_trace_printk("No backends is configured");
+#endif
         return XDP_PASS;
     }
 
@@ -255,7 +270,11 @@ int xdp_prog(struct xdp_md *ctx) {
 
     } else {
         // Unexpected
+
+#ifdef DEBUG
         bpf_trace_printk("Can not find lb mac address");
+#endif
+
         return XDP_PASS;
     }
 
@@ -274,10 +293,13 @@ int xdp_prog(struct xdp_md *ctx) {
     //udp->check = caludpcsum(ip, udp, data_end);
     //bpf_trace_printk("UDP Checksum: 0x%x", udp->check);
 
-    //unsigned char *payload = (unsigned char *)(udp + 1);
-    //bpf_trace_printk("UDP Data: %s", payload);
+#ifdef DEBUG
+    unsigned char *payload = (unsigned char *)(udp + 1);
+    bpf_trace_printk("UDP Data: %s", payload);
+#endif
 
-    //return XDP_TX;
-    return tx_port.redirect_map(0, 0);
+    return XDP_TX;
 
+    // Used when TX is on another NIC
+    //return tx_port.redirect_map(0, 0);
 }
