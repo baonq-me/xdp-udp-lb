@@ -25,6 +25,29 @@ Note 2: Debuging techniques, kernel tuning parameters, NIC parameters and hardwa
 - Step 4: Update `config.py`
 - Step 5: `python xdb_lb.py`
 
+Sample application log
+
+```
+/root/ebpf-dev/venv/bin/python /root/ebpf-dev/xdp_lb.py 
+Backend 103.155.161.181:5555 via mac [0x08, 0xF1, 0xEA, 0xXX, 0xXX, 0xXX]
+Backend 160.25.81.21:5555 via mac [0x3C, 0x8A, 0xB0, 0xXX, 0xXX, 0xXX]
+Trying to load XDP program in mode XDP_FLAGS_DRV_MODE ...
+INFO:     Started server process [991450]
+INFO:     Waiting for application startup.
+XDP program loaded in 17.58 ms
+Max CPUs: 32
+Filter destination: 172.30.30.21:5555
+Filter destination: 172.30.30.22:5555
+Filter destination: 172.30.30.23:5555
+Listening on eth0 ...
+✅ Server has started up!
+INFO:     Application startup complete.
+INFO:     Uvicorn running on http://0.0.0.0:8000 (Press CTRL+C to quit)
+INFO:     1.53.255.xxx:58607 - "GET /metrics HTTP/1.1" 200 OK
+INFO:     1.53.255.xxx:43524 - "GET /metrics HTTP/1.1" 200 OK
+INFO:     1.53.255.xxx:29286 - "GET /metrics HTTP/1.1" 200 OK
+```
+
 ## Sample metrics
 
 ```
