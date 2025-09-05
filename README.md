@@ -2,7 +2,7 @@
 
 **This work is just for fun and still in progress ...*
 
-![alt text](xdp-lb-grafana.png "Title")
+![alt text](xdp-lb-grafana.png "grafana")
 
 
 ## Key features
@@ -130,3 +130,11 @@ xdp_prog_id_created{host="ebpf-dev",interface="eth0"} 1.7570728622585256e+09
 # TYPE interface_qdisk gauge
 interface_qdisk{host="ebpf-dev",interface="eth0",qdisk="mq"} 1.0
 ```
+
+## Future work
+
+Test XDP hardware offload mode in a `Netronome Agilio CX Dual-Port 25 Gigabit Ethernet` (yes I have it)
+
+![alt text](smartnic.jpg "smartnic")
+
+![alt text](smartnic_2.jpg "smartnic_2")
