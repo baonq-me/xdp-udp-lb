@@ -29,23 +29,24 @@ Sample application log
 
 ```
 /root/ebpf-dev/venv/bin/python /root/ebpf-dev/xdp_lb.py 
-Backend 103.155.161.181:5555 via mac [0x08, 0xF1, 0xEA, 0xXX, 0xXX, 0xXX]
-Backend 160.25.81.21:5555 via mac [0x3C, 0x8A, 0xB0, 0xXX, 0xXX, 0xXX]
-Trying to load XDP program in mode XDP_FLAGS_DRV_MODE ...
-INFO:     Started server process [991450]
-INFO:     Waiting for application startup.
-XDP program loaded in 17.58 ms
-Max CPUs: 32
-Filter destination: 172.30.30.21:5555
-Filter destination: 172.30.30.22:5555
-Filter destination: 172.30.30.23:5555
-Listening on eth0 ...
-✅ Server has started up!
-INFO:     Application startup complete.
-INFO:     Uvicorn running on http://0.0.0.0:8000 (Press CTRL+C to quit)
-INFO:     1.53.255.xxx:58607 - "GET /metrics HTTP/1.1" 200 OK
-INFO:     1.53.255.xxx:43524 - "GET /metrics HTTP/1.1" 200 OK
-INFO:     1.53.255.xxx:29286 - "GET /metrics HTTP/1.1" 200 OK
+[2025-09-06 06:09:09,352] [server.py:84] [INFO] Started server process [1259609]
+[2025-09-06 06:09:09,353] [on.py:48] [INFO] Waiting for application startup.
+[2025-09-06 06:09:09,353] [xdp_lb.py:72] [INFO] Trying to load XDP program in mode XDP_FLAGS_DRV_MODE ...
+[2025-09-06 06:09:09,682] [xdp_lb.py:75] [INFO] XDP program loaded in 328.96 ms
+[2025-09-06 06:09:09,682] [config.py:29] [INFO] Backend 172.30.30.21:5555 via mac [0xAC, 0x1F, 0x6B, 0x34, 0xBC, 0xD8]
+[2025-09-06 06:09:09,683] [config.py:29] [INFO] Backend 172.30.30.22:5555 via mac [0xAC, 0x1F, 0x6B, 0x34, 0x85, 0x88]
+[2025-09-06 06:09:09,683] [config.py:29] [INFO] Backend 172.30.30.23:5555 via mac [0xAA, 0x59, 0xCE, 0x90, 0xFC, 0xFE]
+[2025-09-06 06:09:09,683] [xdp_lb.py:97] [INFO] Max CPUs: 40
+[2025-09-06 06:09:09,683] [xdp_lb.py:99] [INFO] Filter destination: 172.30.30.20:5000
+[2025-09-06 06:09:09,683] [xdp_lb.py:99] [INFO] Filter destination: 172.30.30.20:5001
+[2025-09-06 06:09:09,683] [xdp_lb.py:99] [INFO] Filter destination: 172.30.30.20:5002
+[2025-09-06 06:09:09,683] [xdp_lb.py:99] [INFO] Filter destination: 172.30.30.20:5003
+[2025-09-06 06:09:09,683] [xdp_lb.py:99] [INFO] Filter destination: 172.30.30.20:5004
+[2025-09-06 06:09:09,683] [xdp_lb.py:99] [INFO] Filter destination: 172.30.30.20:5005
+[2025-09-06 06:09:09,684] [xdp_lb.py:111] [INFO] Listening on enp23s0f0np0 ...
+[2025-09-06 06:09:09,685] [xdp_lb.py:116] [INFO] ✅ Server has started up!
+[2025-09-06 06:09:09,685] [on.py:62] [INFO] Application startup complete.
+[2025-09-06 06:09:09,685] [server.py:216] [INFO] Uvicorn running on http://0.0.0.0:8000 (Press CTRL+C to quit)
 ```
 
 ## Sample metrics
