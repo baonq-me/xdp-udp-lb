@@ -7,15 +7,15 @@
 
 ## Key features
 
-- Load balance UDP packets to multiple backend (configurable destination IP and Port)
+- Load balance UDP packets to multiple backends (configurable destination IP and Port)
 - Prometheus exporter metrics
-- Carefully tested at 4 milion, 280-byte packets per second (4Mpps, 9Gbps) using enterprise-grade network devices (`Cisco Nexus 92160YC-X` for packet switching).
+- Carefully tested at 4 million, 280-byte packets per second (4Mpps, 9Gbps) using enterprise-grade network devices (`Cisco Nexus 92160YC-X` for packet switching).
 
-- Tested by `nc`, `hping3` and a `kernel level packet generator`
+- Tested by `nc`, `hping3`, and a `kernel-level packet generator`
 
-Note 1: To save CPU workload, this load balancer do not recalculate UDP payload checksum when modify destion port.
+Note 1: To save CPU workload, this load balancer does not recalculate UDP payload checksum when modifying destination ports.
 
-Note 2: Debuging techniques, kernel tuning parameters, NIC parameters and hardware specs are not included in this repo. If you can not reach 4Mpps, it's not about the code :D
+Note 2: Debugging techniques, kernel tuning parameters, NIC parameters, and hardware specs are not included in this repo. If you can not reach 4Mpps, it's not about the code :D
 
 ## Getting started
 
@@ -29,23 +29,24 @@ Sample application log
 
 ```
 /root/ebpf-dev/venv/bin/python /root/ebpf-dev/xdp_lb.py 
-Backend 103.155.161.181:5555 via mac [0x08, 0xF1, 0xEA, 0xXX, 0xXX, 0xXX]
-Backend 160.25.81.21:5555 via mac [0x3C, 0x8A, 0xB0, 0xXX, 0xXX, 0xXX]
-Trying to load XDP program in mode XDP_FLAGS_DRV_MODE ...
-INFO:     Started server process [991450]
-INFO:     Waiting for application startup.
-XDP program loaded in 17.58 ms
-Max CPUs: 32
-Filter destination: 172.30.30.21:5555
-Filter destination: 172.30.30.22:5555
-Filter destination: 172.30.30.23:5555
-Listening on eth0 ...
-✅ Server has started up!
-INFO:     Application startup complete.
-INFO:     Uvicorn running on http://0.0.0.0:8000 (Press CTRL+C to quit)
-INFO:     1.53.255.xxx:58607 - "GET /metrics HTTP/1.1" 200 OK
-INFO:     1.53.255.xxx:43524 - "GET /metrics HTTP/1.1" 200 OK
-INFO:     1.53.255.xxx:29286 - "GET /metrics HTTP/1.1" 200 OK
+[2025-09-06 06:09:09,352] [server.py:84] [INFO] Started server process [1259609]
+[2025-09-06 06:09:09,353] [on.py:48] [INFO] Waiting for application startup.
+[2025-09-06 06:09:09,353] [xdp_lb.py:72] [INFO] Trying to load XDP program in mode XDP_FLAGS_DRV_MODE ...
+[2025-09-06 06:09:09,682] [xdp_lb.py:75] [INFO] XDP program loaded in 328.96 ms
+[2025-09-06 06:09:09,682] [config.py:29] [INFO] Backend 172.30.30.21:5555 via mac [0xAC, 0x1F, 0x6B, 0x34, 0xBC, 0xD8]
+[2025-09-06 06:09:09,683] [config.py:29] [INFO] Backend 172.30.30.22:5555 via mac [0xAC, 0x1F, 0x6B, 0x34, 0x85, 0x88]
+[2025-09-06 06:09:09,683] [config.py:29] [INFO] Backend 172.30.30.23:5555 via mac [0xAA, 0x59, 0xCE, 0x90, 0xFC, 0xFE]
+[2025-09-06 06:09:09,683] [xdp_lb.py:97] [INFO] Max CPUs: 40
+[2025-09-06 06:09:09,683] [xdp_lb.py:99] [INFO] Filter destination: 172.30.30.20:5000
+[2025-09-06 06:09:09,683] [xdp_lb.py:99] [INFO] Filter destination: 172.30.30.20:5001
+[2025-09-06 06:09:09,683] [xdp_lb.py:99] [INFO] Filter destination: 172.30.30.20:5002
+[2025-09-06 06:09:09,683] [xdp_lb.py:99] [INFO] Filter destination: 172.30.30.20:5003
+[2025-09-06 06:09:09,683] [xdp_lb.py:99] [INFO] Filter destination: 172.30.30.20:5004
+[2025-09-06 06:09:09,683] [xdp_lb.py:99] [INFO] Filter destination: 172.30.30.20:5005
+[2025-09-06 06:09:09,684] [xdp_lb.py:111] [INFO] Listening on enp23s0f0np0 ...
+[2025-09-06 06:09:09,685] [xdp_lb.py:116] [INFO] ✅ Server has started up!
+[2025-09-06 06:09:09,685] [on.py:62] [INFO] Application startup complete.
+[2025-09-06 06:09:09,685] [server.py:216] [INFO] Uvicorn running on http://0.0.0.0:8000 (Press CTRL+C to quit)
 ```
 
 ## Sample metrics
@@ -54,86 +55,86 @@ INFO:     1.53.255.xxx:29286 - "GET /metrics HTTP/1.1" 200 OK
 curl -s 127.0.0.1:8000/metrics
 # HELP xdp_packet_processed_rate Instant processed packets per second
 # TYPE xdp_packet_processed_rate gauge
-xdp_packet_processed_rate{host="ebpf-dev",interface="eth0"} 182351.0
+xdp_packet_processed_rate{host="apollo",interface="enp23s0f0np0"} 2.920195e+06
 # HELP xdp_packet_processed Packets processed
 # TYPE xdp_packet_processed gauge
-xdp_packet_processed{host="ebpf-dev",interface="eth0"} 722103.0
+xdp_packet_processed{host="apollo",interface="enp23s0f0np0"} 4.5869711e+07
 # HELP interfaces_stat Interface runtime stats
 # TYPE interfaces_stat gauge
-interfaces_stat{host="ebpf-dev",interface="eth0",type="rx_packets"} 9.36350127e+08
-interfaces_stat{host="ebpf-dev",interface="eth0",type="tx_packets"} 6.49417534e+08
-interfaces_stat{host="ebpf-dev",interface="eth0",type="rx_bytes"} 5.0914459884e+010
-interfaces_stat{host="ebpf-dev",interface="eth0",type="tx_bytes"} 4.3758133082e+010
-interfaces_stat{host="ebpf-dev",interface="eth0",type="rx_errors"} 0.0
-interfaces_stat{host="ebpf-dev",interface="eth0",type="tx_errors"} 0.0
-interfaces_stat{host="ebpf-dev",interface="eth0",type="rx_dropped"} 1.19207681e+08
-interfaces_stat{host="ebpf-dev",interface="eth0",type="tx_dropped"} 0.0
-interfaces_stat{host="ebpf-dev",interface="eth0",type="multicast"} 0.0
-interfaces_stat{host="ebpf-dev",interface="eth0",type="collisions"} 0.0
-interfaces_stat{host="ebpf-dev",interface="eth0",type="rx_length_errors"} 0.0
-interfaces_stat{host="ebpf-dev",interface="eth0",type="rx_over_errors"} 0.0
-interfaces_stat{host="ebpf-dev",interface="eth0",type="rx_crc_errors"} 0.0
-interfaces_stat{host="ebpf-dev",interface="eth0",type="rx_frame_errors"} 0.0
-interfaces_stat{host="ebpf-dev",interface="eth0",type="rx_fifo_errors"} 0.0
-interfaces_stat{host="ebpf-dev",interface="eth0",type="rx_missed_errors"} 0.0
-interfaces_stat{host="ebpf-dev",interface="eth0",type="tx_aborted_errors"} 0.0
-interfaces_stat{host="ebpf-dev",interface="eth0",type="tx_carrier_errors"} 0.0
-interfaces_stat{host="ebpf-dev",interface="eth0",type="tx_fifo_errors"} 0.0
-interfaces_stat{host="ebpf-dev",interface="eth0",type="tx_heartbeat_errors"} 0.0
-interfaces_stat{host="ebpf-dev",interface="eth0",type="tx_window_errors"} 0.0
-interfaces_stat{host="ebpf-dev",interface="eth0",type="rx_compressed"} 0.0
-interfaces_stat{host="ebpf-dev",interface="eth0",type="tx_compressed"} 0.0
-interfaces_stat{host="ebpf-dev",interface="eth0",type="num_tx_queue"} 2.0
-interfaces_stat{host="ebpf-dev",interface="eth0",type="num_rx_queue"} 2.0
-interfaces_stat{host="ebpf-dev",interface="eth0",type="mtu"} 1500.0
+interfaces_stat{host="apollo",interface="enp23s0f0np0",type="rx_packets"} 6.4509959e+07
+interfaces_stat{host="apollo",interface="enp23s0f0np0",type="tx_packets"} 6.4509521e+07
+interfaces_stat{host="apollo",interface="enp23s0f0np0",type="rx_bytes"} 1.8062565897e+010
+interfaces_stat{host="apollo",interface="enp23s0f0np0",type="tx_bytes"} 1.8063654486e+010
+interfaces_stat{host="apollo",interface="enp23s0f0np0",type="rx_errors"} 0.0
+interfaces_stat{host="apollo",interface="enp23s0f0np0",type="tx_errors"} 0.0
+interfaces_stat{host="apollo",interface="enp23s0f0np0",type="rx_dropped"} 2.140531e+06
+interfaces_stat{host="apollo",interface="enp23s0f0np0",type="tx_dropped"} 7.14732864e+08
+interfaces_stat{host="apollo",interface="enp23s0f0np0",type="multicast"} 51.0
+interfaces_stat{host="apollo",interface="enp23s0f0np0",type="collisions"} 0.0
+interfaces_stat{host="apollo",interface="enp23s0f0np0",type="rx_length_errors"} 0.0
+interfaces_stat{host="apollo",interface="enp23s0f0np0",type="rx_over_errors"} 0.0
+interfaces_stat{host="apollo",interface="enp23s0f0np0",type="rx_crc_errors"} 0.0
+interfaces_stat{host="apollo",interface="enp23s0f0np0",type="rx_frame_errors"} 0.0
+interfaces_stat{host="apollo",interface="enp23s0f0np0",type="rx_fifo_errors"} 0.0
+interfaces_stat{host="apollo",interface="enp23s0f0np0",type="rx_missed_errors"} 0.0
+interfaces_stat{host="apollo",interface="enp23s0f0np0",type="tx_aborted_errors"} 0.0
+interfaces_stat{host="apollo",interface="enp23s0f0np0",type="tx_carrier_errors"} 0.0
+interfaces_stat{host="apollo",interface="enp23s0f0np0",type="tx_fifo_errors"} 0.0
+interfaces_stat{host="apollo",interface="enp23s0f0np0",type="tx_heartbeat_errors"} 0.0
+interfaces_stat{host="apollo",interface="enp23s0f0np0",type="tx_window_errors"} 0.0
+interfaces_stat{host="apollo",interface="enp23s0f0np0",type="rx_compressed"} 0.0
+interfaces_stat{host="apollo",interface="enp23s0f0np0",type="tx_compressed"} 0.0
+interfaces_stat{host="apollo",interface="enp23s0f0np0",type="num_tx_queue"} 64.0
+interfaces_stat{host="apollo",interface="enp23s0f0np0",type="num_rx_queue"} 64.0
+interfaces_stat{host="apollo",interface="enp23s0f0np0",type="mtu"} 1500.0
 # HELP interfaces_spec Interface specifications
 # TYPE interfaces_spec gauge
-interfaces_spec{host="ebpf-dev",interface="eth0",type="dummy"} 65668.0
-interfaces_spec{host="ebpf-dev",interface="eth0",type="forwarding"} 1.0
-interfaces_spec{host="ebpf-dev",interface="eth0",type="mc_forwarding"} 0.0
-interfaces_spec{host="ebpf-dev",interface="eth0",type="proxy_arp"} 0.0
-interfaces_spec{host="ebpf-dev",interface="eth0",type="accept_redirects"} 1.0
-interfaces_spec{host="ebpf-dev",interface="eth0",type="secure_redirects"} 1.0
-interfaces_spec{host="ebpf-dev",interface="eth0",type="send_redirects"} 1.0
-interfaces_spec{host="ebpf-dev",interface="eth0",type="shared_media"} 1.0
-interfaces_spec{host="ebpf-dev",interface="eth0",type="rp_filter"} 1.0
-interfaces_spec{host="ebpf-dev",interface="eth0",type="accept_source_route"} 0.0
-interfaces_spec{host="ebpf-dev",interface="eth0",type="bootp_relay"} 0.0
-interfaces_spec{host="ebpf-dev",interface="eth0",type="log_martians"} 0.0
-interfaces_spec{host="ebpf-dev",interface="eth0",type="tag"} 0.0
-interfaces_spec{host="ebpf-dev",interface="eth0",type="arpfilter"} 0.0
-interfaces_spec{host="ebpf-dev",interface="eth0",type="medium_id"} 0.0
-interfaces_spec{host="ebpf-dev",interface="eth0",type="noxfrm"} 0.0
-interfaces_spec{host="ebpf-dev",interface="eth0",type="nopolicy"} 0.0
-interfaces_spec{host="ebpf-dev",interface="eth0",type="force_igmp_version"} 0.0
-interfaces_spec{host="ebpf-dev",interface="eth0",type="arp_announce"} 0.0
-interfaces_spec{host="ebpf-dev",interface="eth0",type="arp_ignore"} 0.0
-interfaces_spec{host="ebpf-dev",interface="eth0",type="promote_secondaries"} 1.0
-interfaces_spec{host="ebpf-dev",interface="eth0",type="arp_accept"} 0.0
-interfaces_spec{host="ebpf-dev",interface="eth0",type="arp_notify"} 0.0
-interfaces_spec{host="ebpf-dev",interface="eth0",type="accept_local"} 0.0
-interfaces_spec{host="ebpf-dev",interface="eth0",type="src_vmark"} 0.0
-interfaces_spec{host="ebpf-dev",interface="eth0",type="proxy_arp_pvlan"} 0.0
-interfaces_spec{host="ebpf-dev",interface="eth0",type="route_localnet"} 0.0
-interfaces_spec{host="ebpf-dev",interface="eth0",type="igmpv2_unsolicited_report_interval"} 10000.0
-interfaces_spec{host="ebpf-dev",interface="eth0",type="igmpv3_unsolicited_report_interval"} 1000.0
+interfaces_spec{host="apollo",interface="enp23s0f0np0",type="dummy"} 65672.0
+interfaces_spec{host="apollo",interface="enp23s0f0np0",type="forwarding"} 1.0
+interfaces_spec{host="apollo",interface="enp23s0f0np0",type="mc_forwarding"} 0.0
+interfaces_spec{host="apollo",interface="enp23s0f0np0",type="proxy_arp"} 0.0
+interfaces_spec{host="apollo",interface="enp23s0f0np0",type="accept_redirects"} 1.0
+interfaces_spec{host="apollo",interface="enp23s0f0np0",type="secure_redirects"} 1.0
+interfaces_spec{host="apollo",interface="enp23s0f0np0",type="send_redirects"} 1.0
+interfaces_spec{host="apollo",interface="enp23s0f0np0",type="shared_media"} 1.0
+interfaces_spec{host="apollo",interface="enp23s0f0np0",type="rp_filter"} 2.0
+interfaces_spec{host="apollo",interface="enp23s0f0np0",type="accept_source_route"} 1.0
+interfaces_spec{host="apollo",interface="enp23s0f0np0",type="bootp_relay"} 0.0
+interfaces_spec{host="apollo",interface="enp23s0f0np0",type="log_martians"} 0.0
+interfaces_spec{host="apollo",interface="enp23s0f0np0",type="tag"} 0.0
+interfaces_spec{host="apollo",interface="enp23s0f0np0",type="arpfilter"} 0.0
+interfaces_spec{host="apollo",interface="enp23s0f0np0",type="medium_id"} 0.0
+interfaces_spec{host="apollo",interface="enp23s0f0np0",type="noxfrm"} 0.0
+interfaces_spec{host="apollo",interface="enp23s0f0np0",type="nopolicy"} 0.0
+interfaces_spec{host="apollo",interface="enp23s0f0np0",type="force_igmp_version"} 0.0
+interfaces_spec{host="apollo",interface="enp23s0f0np0",type="arp_announce"} 0.0
+interfaces_spec{host="apollo",interface="enp23s0f0np0",type="arp_ignore"} 0.0
+interfaces_spec{host="apollo",interface="enp23s0f0np0",type="promote_secondaries"} 1.0
+interfaces_spec{host="apollo",interface="enp23s0f0np0",type="arp_accept"} 0.0
+interfaces_spec{host="apollo",interface="enp23s0f0np0",type="arp_notify"} 0.0
+interfaces_spec{host="apollo",interface="enp23s0f0np0",type="accept_local"} 0.0
+interfaces_spec{host="apollo",interface="enp23s0f0np0",type="src_vmark"} 0.0
+interfaces_spec{host="apollo",interface="enp23s0f0np0",type="proxy_arp_pvlan"} 0.0
+interfaces_spec{host="apollo",interface="enp23s0f0np0",type="route_localnet"} 0.0
+interfaces_spec{host="apollo",interface="enp23s0f0np0",type="igmpv2_unsolicited_report_interval"} 10000.0
+interfaces_spec{host="apollo",interface="enp23s0f0np0",type="igmpv3_unsolicited_report_interval"} 1000.0
 # HELP xdp_mode Information
 # TYPE xdp_mode gauge
-xdp_mode{host="ebpf-dev",interface="eth0",mode="xdp"} 1.0
+xdp_mode{host="apollo",interface="enp23s0f0np0",mode="xdp"} 1.0
 # HELP xdp_prog_id_total Information
 # TYPE xdp_prog_id_total counter
-xdp_prog_id_total{host="ebpf-dev",interface="eth0"} 1162.0
+xdp_prog_id_total{host="apollo",interface="enp23s0f0np0"} 1260.0
 # HELP xdp_prog_id_created Information
 # TYPE xdp_prog_id_created gauge
-xdp_prog_id_created{host="ebpf-dev",interface="eth0"} 1.7570728622585256e+09
+xdp_prog_id_created{host="apollo",interface="enp23s0f0np0"} 1.7571390531575994e+09
 # HELP interface_qdisk Interface queuing disciplines
 # TYPE interface_qdisk gauge
-interface_qdisk{host="ebpf-dev",interface="eth0",qdisk="mq"} 1.0
+interface_qdisk{host="apollo",interface="enp23s0f0np0",qdisk="mq"} 1.0
 ```
 
 ## Future work
 
-Test XDP hardware offload mode in a `Netronome Agilio CX Dual-Port 25 Gigabit Ethernet` (yes I have it)
+Test XDP hardware offload mode in a `Netronome Agilio CX Dual-Port 25 Gigabit Ethernet` (yes, I have it)
 
 ![alt text](smartnic.jpg "smartnic")
 

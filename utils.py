@@ -19,7 +19,7 @@ def mac_string_to_int(mac_str: str):
     return tuple(int(b, 16) for b in mac_str.split(":"))
 
 def get_mac_tuple(interface: str):
-    with open(f"/sys/class/net/eth0/address", "r") as f:
+    with open(f"/sys/class/net/{interface}/address", "r") as f:
         mac_str = f.readline()
         return  mac_string_to_int(mac_str)
 
