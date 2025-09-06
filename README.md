@@ -11,7 +11,7 @@
 - Prometheus exporter metrics
 - Carefully tested at 4 million, 280-byte packets per second (4Mpps, 9Gbps) using enterprise-grade network devices (`Cisco Nexus 92160YC-X` for packet switching).
 
-- Tested by `nc`, `hping3', and a `kernel-level packet generator`
+- Tested by `nc`, `hping3`, and a `kernel-level packet generator`
 
 Note 1: To save CPU workload, this load balancer does not recalculate UDP payload checksum when modifying destination ports.
 
