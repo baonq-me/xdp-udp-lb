@@ -34,8 +34,8 @@ DEVICE = config.device
 HOSTNAME = socket.gethostname()
 b = BPF(src_file="xdp_prog.c", cflags=["-w", "-D__MAX_CPU__=%u" % cpu_count()], debug=0)
 
-packet_counter_per_cpus = [0] * cpu_count()
-packet_counter_rate_per_cpus = [0] * cpu_count()
+packet_counter_per_cpus_last_1s = [0] * cpu_count()
+packet_counter_rate_per_cpus_last_1s = [0] * cpu_count()
 packet_latency_bucket = collections.deque(maxlen=256*1024)
 
 xdp_collector_registry = CollectorRegistry()
@@ -74,15 +74,17 @@ def packet_rate_counter():
     packet_latency_bucket.clear()
 
 
-    global packet_counter_per_cpus
-    global packet_counter_rate_per_cpus
+    global packet_counter_per_cpus_last_1s
+    global packet_counter_rate_per_cpus_last_1s
 
+    packet_counter_per_cpus = read_total_packets_processed()
+    packet_counter_rate_per_cpus = [x-y for x,y in zip(packet_counter_per_cpus, packet_counter_per_cpus_last_1s)]
 
-    total_packet_processed = read_total_packets_processed()
-    packet_counter_rate_per_cpus = [x-y for x,y in zip(total_packet_processed, packet_counter_per_cpus)]
+    packet_counter_rate_per_cpus_last_1s = packet_counter_rate_per_cpus
+    packet_counter_per_cpus_last_1s = packet_counter_per_cpus
 
-    packet_processed.labels(cpu="total", interface=DEVICE, host=HOSTNAME).set(sum(total_packet_processed))
-    for i,v in enumerate(total_packet_processed):
+    packet_processed.labels(cpu="total", interface=DEVICE, host=HOSTNAME).set(sum(packet_counter_per_cpus))
+    for i,v in enumerate(packet_counter_per_cpus):
         packet_processed.labels(cpu=str(i), interface=DEVICE, host=HOSTNAME).set(v)
 
     packet_processed_rate.labels(cpu="total", interface=DEVICE, host=HOSTNAME).set(sum(packet_counter_rate_per_cpus))
@@ -217,11 +219,12 @@ def get_metrics():
 @app.get("/")
 def root():
 
-    global packet_rate_1s
+    global packet_counter_per_cpus_last_1s
+    global packet_counter_rate_per_cpus_last_1s
 
     return {
-        "packet_processed": read_total_packets_processed(),
-        "packet_rate_1s": packet_rate_1s
+        "packet_processed": packet_counter_per_cpus_last_1s,
+        "packet_rate": packet_counter_rate_per_cpus_last_1s
     }
 
 def print_event(ctx, data, size):
