@@ -1,12 +1,13 @@
 import json
 import socket
 import struct
+import subprocess
 import sys
 import threading
 import time
 from contextlib import asynccontextmanager
 from multiprocessing import cpu_count
-
+import os, logging
 import schedule
 import uvicorn
 from bcc import BPF
@@ -19,7 +20,13 @@ import utils
 from object import *
 from utils import get_link_info
 
-BACKENDS = []
+
+logging.basicConfig(filename="/dev/stdout",
+                    filemode='a',
+                    format='[%(asctime)s,%(msecs)d] [%(filename)s:%(lineno)d] [%(levelname)s] %(message)s',
+                    datefmt='%Y-%m-%d %H:%M:%S',
+                    level=os.environ.get('LOGLEVEL', 'INFO').upper()
+                    )
 
 DEVICE = config.device  # change this to your NIC
 HOSTNAME = socket.gethostname()
@@ -61,42 +68,39 @@ def run_scheduler():
 async def lifespan(app: FastAPI):
     # 🚀 Startup code
 
-    xdp_mode = "XDP_FLAGS_DRV_MODE"
-    #xdp_mode = "XDP_FLAGS_SKB_MODE"
-
     try:
-        print(f"Trying to load XDP program in mode {xdp_mode} ...")
+        logging.info(f"Trying to load XDP program in mode {config.xdp_mode} ...")
         time_start = time.time()
-        b.attach_xdp(DEVICE, b.load_func("xdp_prog", BPF.XDP), flags=config.flags[xdp_mode])
-        print(f"XDP program loaded in {(time.time() - time_start)*1000:.2f} ms")
+        b.attach_xdp(DEVICE, b.load_func("xdp_prog", BPF.XDP), flags=config.flags[config.xdp_mode])
+        logging.info(f"XDP program loaded in {(time.time() - time_start)*1000:.2f} ms")
 
     except Exception as e1:
-        print(e1)
-        print(f"Fail to load XDP program in mode {xdp_mode}, falling back to SKB mode ...")
+        logging.exception(e1)
+        logging.error(f"Fail to load XDP program in mode {config.xdp_mode}, falling back to SKB mode ...")
         time_start = time.time()
         try:
             b.attach_xdp(DEVICE, b.load_func("xdp_prog", BPF.XDP), flags=config.flags["XDP_FLAGS_SKB_MODE"])
-            print(f"XDP program loaded in skb mode in {(time.time() - time_start)*1000:.2f} ms")
+            logging.info(f"XDP program loaded in skb mode in {(time.time() - time_start)*1000:.2f} ms")
         except Exception as e2:
-            print(e2)
-            print("Can not load XDP program. Exit.")
+            logging.exception(e2)
+            logging.info("Can not load XDP program. Exit.")
             sys.exit(1)
 
     # b['rb'].open_ring_buffer(print_event)
 
-    for i, backend in enumerate(BACKENDS):
+    xdp_backends = config.get_backends()
+    for i, backend in enumerate(xdp_backends):
         b["backends"][i] = backend
 
-    filter_ip = utils.get_ip_address(DEVICE)
-    b["filter_ip"][0] = ctypes.c_uint32(struct.unpack("I", socket.inet_aton(filter_ip))[0])
-    print(f"Max CPUs: {cpu_count()}")
-    for i in range(cpu_count()):
-        filter_port = 5000+i
-        print(f"Filter destination: {filter_ip}:{filter_port}")
+    destination_ip = utils.get_ip_address(DEVICE)
+    b["filter_ip"][0] = ctypes.c_uint32(struct.unpack("I", socket.inet_aton(destination_ip))[0])
+    logging.info(f"Max CPUs: {cpu_count()}")
+    for destination_port in config.destination_ports:
+        logging.info(f"Filter destination: {destination_ip}:{destination_port}")
         filter_ports = b["filter_ports"]
-        filter_ports[filter_ports.Key(filter_port)] = filter_ports.Leaf(1)
+        filter_ports[filter_ports.Key(destination_port)] = filter_ports.Leaf(1)
 
-    b["backend_counter"][0] = ctypes.c_uint16(len(BACKENDS))
+    b["backend_counter"][0] = ctypes.c_uint16(len(xdp_backends))
 
     # Device to send traffic
     b["tx_port"][0] = ctypes.c_int(socket.if_nametoindex(DEVICE))
@@ -104,17 +108,19 @@ async def lifespan(app: FastAPI):
     # Load balancer mac address
     b["lb_mac"][0] = MacAddr(utils.get_mac_tuple(DEVICE))
 
-    print(f"Listening on {DEVICE} ...")
+    logging.info(f"Listening on {DEVICE} ...")
 
     thread = threading.Thread(target=run_scheduler, daemon=True)
     thread.start()
 
-    print("✅ Server has started up!")
+    logging.info("✅ Server has started up!")
 
     yield
 
     # 🛑 Shutdown code
-    print("🛑 Server is shutting down...")
+    logging.info("🛑 Server is shutting down...")
+    logging.info(f"Removing XDP prog from NIC {DEVICE}")
+    b.remove_xdp(DEVICE, 0)
 
 app = FastAPI(lifespan=lifespan)
 
@@ -201,24 +207,42 @@ if __name__ == "__main__":
 
     link_info = get_link_info(DEVICE)
     if link_info.get("IFLA_XDP", {}).get("IFLA_XDP_ATTACHED", None):
-        print(f"A xdp program is being attached to nic {DEVICE}: {json.dumps(link_info.get('IFLA_XDP', {}))}")
-        print("Exiting ...")
+        logging.error(f"A xdp program is being attached to nic {DEVICE}: {json.dumps(link_info.get('IFLA_XDP', {}))}")
+        logging.error("Exiting ...")
         sys.exit(1)
-
-    BACKENDS = config.get_backends()
 
     try:
         uvicorn.run(
             "xdp_lb:app",
             host="0.0.0.0",
             port=8000,
-            workers=1,  # enforce single worker
+            workers=1,  # enforce single worker,
+            log_config={
+                "version": 1,
+                "formatters": {
+                    "default": {
+                        "format": "[%(asctime)s,%(msecs)d] [%(filename)s:%(lineno)d] [%(levelname)s] %(message)s",
+                        "datefmt": "%Y-%m-%d %H:%M:%S",
+                    },
+                },
+                "handlers": {
+                    "default": {
+                        "formatter": "default",
+                        "class": "logging.StreamHandler",
+                        "stream": sys.stdout,
+                    },
+                },
+                "loggers": {
+                    "uvicorn": {"handlers": ["default"], "level": "INFO"},
+                    "uvicorn.error": {"handlers": ["default"], "level": "INFO", "propagate": False},
+                    "uvicorn.access": {"handlers": ["default"], "level": "INFO", "propagate": False},
+                },
+            }
         )
-    except KeyboardInterrupt:
-        pass
+    except Exception as e:
+        logging.error(e)
     finally:
-        print(f"Removing XDP prog from NIC {DEVICE}")
-        b.remove_xdp(DEVICE, 0)
-
-        #  ip link set dev eth0 xdpgeneric off
-        # Run this if xdp program can not be detached
+        if utils.get_loaded_xdp_program(DEVICE):
+            logging.warning("XDP program still attached, forcing it to be detached")
+            subprocess.run(["ip", "link", "set", "dev", DEVICE, "xdp", "off"])
+            subprocess.run(["ip", "link", "set", "dev", DEVICE, "xdpgeneric", "off"])
