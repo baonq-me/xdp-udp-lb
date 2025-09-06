@@ -28,7 +28,7 @@ logging.basicConfig(filename="/dev/stdout",
                     level=os.environ.get('LOGLEVEL', 'INFO').upper()
                     )
 
-DEVICE = config.device  # change this to your NIC
+DEVICE = config.device
 HOSTNAME = socket.gethostname()
 b = BPF(src_file="xdp_prog.c", cflags=["-w", "-D__MAX_CPU__=%u" % cpu_count()], debug=0)
 
@@ -44,8 +44,6 @@ interface_spec = Gauge(name="interfaces_spec", documentation="Interface specific
 xdp_mode = Gauge(name="xdp_mode", documentation="Information", labelnames=["interface", "host", "mode"], registry=xdp_collector_registry)
 xdp_prog_id = Counter(name="xdp_prog_id", documentation="Information", labelnames=["interface", "host"], registry=xdp_collector_registry)
 interface_qdisk = Gauge(name="interface_qdisk", documentation="Interface queuing disciplines", labelnames=["interface", "host", "qdisk"], registry=xdp_collector_registry)
-
-
 
 def packet_rate_counter():
     global packet_counter_last_1s
@@ -214,8 +212,8 @@ if __name__ == "__main__":
     try:
         uvicorn.run(
             "xdp_lb:app",
-            host="0.0.0.0",
-            port=8000,
+            host=os.environ.get("HTTP_HOST", "0.0.0.0"),
+            port=int(os.environ.get("HTTP_PORT", "8000")),
             workers=1,  # enforce single worker,
             log_config={
                 "version": 1,

@@ -1,4 +1,5 @@
 import logging
+import os
 from os import cpu_count
 
 import utils
@@ -6,21 +7,32 @@ from object import *
 import struct
 import socket
 from bcc import BPF
+import dotenv
+
+dotenv.load_dotenv("env")
+
+def parse_config_backends(s):
+    result = []
+    for entry in s.split(","):
+        if ":" in entry:
+            host, port = entry.rsplit(":", 1)
+        else:
+            # Assume last 4–5 digits are the port if no colon
+            # (works for your "172.30.23.25555" example)
+            host, port = entry[:-5], entry[-5:]
+        result.append((host.strip(), int(port)))
+    return result
 
 # Use arp -n to get destination mac address
-servers = [
-    ("172.30.30.21", 5555),
-    ("172.30.30.22", 5555),
-    ("172.30.30.23", 5555),
-]
-device = "eth0"
-destination_ports = [5000+i for i in range(cpu_count())]
-xdp_mode = "XDP_FLAGS_DRV_MODE"
+servers = parse_config_backends(os.environ.get("BACKENDS", default="127.0.0.1:5000"))
+device = os.environ.get("INTERFACE", default="eth0")
+destination_ports = [int(j) for j in os.environ.get("DESTINATION_PORTS", default=','.join([str(5000+i) for i in range(cpu_count())])).split(",")]
+xdp_mode = os.environ.get("XDP_MODE", default="XDP_FLAGS_SKB_MODE")
 
 # https://docs.ebpf.io/linux/program-type/BPF_PROG_TYPE_XDP
 flags = {
-    "XDP_FLAGS_SKB_MODE": BPF.XDP_FLAGS_SKB_MODE,
     "XDP_FLAGS_DRV_MODE": BPF.XDP_FLAGS_DRV_MODE,
+    "XDP_FLAGS_SKB_MODE": BPF.XDP_FLAGS_SKB_MODE,
     "XDP_FLAGS_HW_MODE": BPF.XDP_FLAGS_HW_MODE,         # Only Netronome Agilio CX SmartNICs support this
     "XDP_FLAGS_REPLACE": BPF.XDP_FLAGS_REPLACE,        # Replace exsting XDP program
 }

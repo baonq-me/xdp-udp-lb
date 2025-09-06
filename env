@@ -1,0 +1,16 @@
+# Interface on load balancer which XDP program will be deployed
+INTERFACE=eth0
+
+# IP and port for metrics server
+HTTP_HOST=0.0.0.0
+HTTP_PORT=8000
+
+# Backend targets that load balancer will distributed traffic to
+BACKENDS=172.30.30.21:5555,172.30.30.22:5555,172.30.30.23:5555
+
+# Ports on load balancer that will accept traffic
+DESTINATION_PORT=5000,5001,5002,5003,5004,5005,5006,5007,5008,5009,5010,5011,5012,5013,5014,5015,5016,5017,5018,5019,5020,5021,5022,5023,5024,5025,5026,5027,5028,5029,5030,5031,5032,5033,5034,5035,5036,5037,5038,5039
+
+# XDP working mode: XDP_FLAGS_DRV_MODE, XDP_FLAGS_SKB_MODE, XDP_FLAGS_HW_MODE
+# https://docs.ebpf.io/linux/program-type/BPF_PROG_TYPE_XDP
+XDP_MODE=XDP_FLAGS_DRV_MODE
