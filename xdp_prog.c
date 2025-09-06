@@ -16,7 +16,7 @@ struct backend_t {
 };
 
 // Allocate 4096 page (4096 * 4KB page size = 16MB buffer size)
-//BPF_RINGBUF_OUTPUT(rb, 4096);
+BPF_RINGBUF_OUTPUT(rb, 4096);
 
 // Store backend configs
 BPF_ARRAY(backends, struct backend_t, 16);
@@ -25,7 +25,7 @@ BPF_ARRAY(backends, struct backend_t, 16);
 BPF_ARRAY(backend_counter, u64, 1);
 
 // Processed packet counter
-BPF_ARRAY(counter, u64, 1);
+BPF_PERCPU_ARRAY(counter, u64, 1);
 
 // filter: only match this dest ip/port
 BPF_ARRAY(filter_ip, u32, 1);
@@ -45,9 +45,9 @@ struct macaddr {
 
 BPF_ARRAY(lb_mac, struct macaddr, 1);
 
-
 struct event {
     int pkt_size;
+    int time_delta;
 };
 
 
@@ -129,17 +129,10 @@ static inline __u16 caludpcsum(struct iphdr *ip, struct udphdr *udp, void *data_
 
 
 int xdp_prog(struct xdp_md *ctx) {
-    int pkt_size = (int)(ctx->data_end - ctx->data);
-    /*struct event *event = rb.ringbuf_reserve(sizeof(struct event));
-    if (!event) {
-        bpf_trace_printk("Cannot allocate %d bytes from ring buffer\n", sizeof(struct event));
-        return XDP_PASS;
-    }
-    event->pkt_size = pkt_size;
 
-    // Send packet size to userspace ring buffer
-    rb.ringbuf_submit(event, 0);
-    */
+    u64 time_start = bpf_ktime_get_ns();
+
+    int pkt_size = (int)(ctx->data_end - ctx->data);
 
     void *data_end = (void *)(long)ctx->data_end;
     void *data     = (void *)(long)ctx->data;
@@ -211,8 +204,11 @@ int xdp_prog(struct xdp_md *ctx) {
     u32 k0 = 0;
     u64 *pktcnt = counter.lookup(&k0);
     if (pktcnt) {
-        //bpf_trace_printk("Receive UDP packet with size %d", pkt_size);
-        (*pktcnt)++;
+#ifdef DEBUG
+        bpf_trace_printk("Receive UDP packet with size %d", pkt_size);
+#endif
+        //(*pktcnt)++;
+        __sync_fetch_and_add(pktcnt, 1);
     } else {
         return XDP_PASS;
     }
@@ -297,6 +293,25 @@ int xdp_prog(struct xdp_md *ctx) {
     unsigned char *payload = (unsigned char *)(udp + 1);
     bpf_trace_printk("UDP Data: %s", payload);
 #endif
+
+
+    if (*pktcnt % 100 == 0)
+    {
+        int time_delta = bpf_ktime_get_ns() - time_start;
+        bpf_trace_printk("time delta: %d", time_delta);
+
+        struct event *event = rb.ringbuf_reserve(sizeof(struct event));
+        if (!event) {
+            bpf_trace_printk("Cannot allocate %d bytes from ring buffer\n", sizeof(struct event));
+            return XDP_PASS;
+        }
+        event->pkt_size = pkt_size;
+        event->time_delta = time_delta;
+
+        // Send packet size to userspace ring buffer
+        rb.ringbuf_submit(event, 0);
+
+    }
 
     return XDP_TX;
 

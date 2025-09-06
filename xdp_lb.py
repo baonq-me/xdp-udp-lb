@@ -14,12 +14,14 @@ from bcc import BPF
 from fastapi import FastAPI
 from prometheus_client import *
 from starlette.responses import Response
+import numpy as np
 
 import config
 import utils
 from object import *
 from utils import get_link_info
 
+import collections
 
 logging.basicConfig(filename="/dev/stdout",
                     filemode='a',
@@ -32,12 +34,17 @@ DEVICE = config.device
 HOSTNAME = socket.gethostname()
 b = BPF(src_file="xdp_prog.c", cflags=["-w", "-D__MAX_CPU__=%u" % cpu_count()], debug=0)
 
-packet_counter_last_1s = 0
-packet_rate_1s = 0
+packet_counter_per_cpus = [0] * cpu_count()
+packet_counter_rate_per_cpus = [0] * cpu_count()
+packet_latency_bucket = collections.deque(maxlen=256*1024)
 
 xdp_collector_registry = CollectorRegistry()
-packet_processed_rate = Gauge(name="xdp_packet_processed_rate", documentation="Instant processed packets per second", labelnames=["interface", "host"], registry=xdp_collector_registry)
-packet_processed = Gauge(name="xdp_packet_processed", documentation="Packets processed", labelnames=["interface", "host"], registry=xdp_collector_registry)
+
+packet_processed_rate = Gauge(name="xdp_packet_processed_rate", documentation="Instant processed packets per second", labelnames=["cpu", "interface", "host"], registry=xdp_collector_registry)
+packet_processed = Gauge(name="xdp_packet_processed", documentation="Packets processed", labelnames=["cpu", "interface", "host"], registry=xdp_collector_registry)
+packet_latency = Gauge(name="xdp_packet_latency_ns", documentation="Packets processing latency in nanoseconds", labelnames=["type", "interface", "host"], registry=xdp_collector_registry)
+
+
 interface_stat = Gauge(name="interfaces_stat", documentation="Interface runtime stats", labelnames=["interface", "type", "host"], registry=xdp_collector_registry)
 interface_spec = Gauge(name="interfaces_spec", documentation="Interface specifications", labelnames=["interface", "type", "host"], registry=xdp_collector_registry)
 
@@ -45,15 +52,42 @@ xdp_mode = Gauge(name="xdp_mode", documentation="Information", labelnames=["inte
 xdp_prog_id = Counter(name="xdp_prog_id", documentation="Information", labelnames=["interface", "host"], registry=xdp_collector_registry)
 interface_qdisk = Gauge(name="interface_qdisk", documentation="Interface queuing disciplines", labelnames=["interface", "host", "qdisk"], registry=xdp_collector_registry)
 
+def read_total_packets_processed():
+    for k,v in b.get_table("counter").items():
+        per_cpu_vals = list(v)
+        return per_cpu_vals
+
+    return [0] * cpu_count()
+
 def packet_rate_counter():
-    global packet_counter_last_1s
-    global packet_rate_1s
 
-    packet_rate_1s = b["counter"][0].value - packet_counter_last_1s
-    packet_counter_last_1s = b["counter"][0].value
+    b.ring_buffer_consume()
 
-    packet_processed.labels(interface=DEVICE, host=HOSTNAME).set(b["counter"][0].value)
-    packet_processed_rate.labels(interface=DEVICE, host=HOSTNAME).set(packet_rate_1s)
+    latency = np.array(list(packet_latency_bucket))
+    packet_latency.labels(interface=DEVICE, host=HOSTNAME, type="mean").set(0 if len(packet_latency_bucket) == 0 else latency.mean())
+    packet_latency.labels(interface=DEVICE, host=HOSTNAME, type="min").set(0 if len(packet_latency_bucket) == 0 else latency.min())
+    packet_latency.labels(interface=DEVICE, host=HOSTNAME, type="max").set(0 if len(packet_latency_bucket) == 0 else latency.max())
+    packet_latency.labels(interface=DEVICE, host=HOSTNAME, type="std").set(0 if len(packet_latency_bucket) == 0 else latency.std())
+    for p in [25,50,90,95,99]:
+        packet_latency.labels(interface=DEVICE, host=HOSTNAME, type=f"p{p}").set(0.0 if len(packet_latency_bucket) == 0 else float(np.percentile(latency, p)))
+
+    packet_latency_bucket.clear()
+
+
+    global packet_counter_per_cpus
+    global packet_counter_rate_per_cpus
+
+
+    total_packet_processed = read_total_packets_processed()
+    packet_counter_rate_per_cpus = [x-y for x,y in zip(total_packet_processed, packet_counter_per_cpus)]
+
+    packet_processed.labels(cpu="total", interface=DEVICE, host=HOSTNAME).set(sum(total_packet_processed))
+    for i,v in enumerate(total_packet_processed):
+        packet_processed.labels(cpu=str(i), interface=DEVICE, host=HOSTNAME).set(v)
+
+    packet_processed_rate.labels(cpu="total", interface=DEVICE, host=HOSTNAME).set(sum(packet_counter_rate_per_cpus))
+    for i,v in enumerate(packet_counter_rate_per_cpus):
+        packet_processed_rate.labels(cpu=str(i), interface=DEVICE, host=HOSTNAME).set(v)
 
 def run_scheduler():
     """Run scheduler loop in background"""
@@ -84,7 +118,7 @@ async def lifespan(app: FastAPI):
             logging.info("Can not load XDP program. Exit.")
             sys.exit(1)
 
-    # b['rb'].open_ring_buffer(print_event)
+    b['rb'].open_ring_buffer(print_event)
 
     xdp_backends = config.get_backends()
     for i, backend in enumerate(xdp_backends):
@@ -182,20 +216,20 @@ def get_metrics():
 
 @app.get("/")
 def root():
-    #b.ring_buffer_poll(timeout=0.1)
 
     global packet_rate_1s
 
     return {
-        "packet_processed": b["counter"][0].value,
+        "packet_processed": read_total_packets_processed(),
         "packet_rate_1s": packet_rate_1s
     }
 
-
 def print_event(ctx, data, size):
     event = b['rb'].event(data)
-    # print(f"Receive packet size {event.pkt_size}")
+    #print(f"Receive packet size {event.pkt_size}")
+    #print(f"Receive time delta  {event.time_delta} ns")
 
+    packet_latency_bucket.append(event.time_delta)
 
 @app.get("/link")
 def link_info():
