@@ -222,6 +222,97 @@ xdp_prog_id_created{host="apollo",interface="enp23s0f0np0"} 1.7572184751152325e+
 interface_qdisk{host="apollo",interface="enp23s0f0np0",qdisk="mq"} 1.0
 ```
 
+## Port statistics
+
+Interface detail
+
+```
+IronLink# show interface Eth1/3
+Ethernet1/3 is up
+admin state is up, Dedicated Interface
+  Hardware: 1000/10000/25000 Ethernet, address: 00c8.8b66.a46e (bia 00c8.8b66.a4
+6e)
+  Description: apollo
+  MTU 1500 bytes, BW 10000000 Kbit , DLY 10 usec
+  reliability 255/255, txload 224/255, rxload 221/255
+  Encapsulation ARPA, medium is broadcast
+  Port mode is access
+  full-duplex, 10 Gb/s, media type is 10G
+  Beacon is turned off
+  Auto-Negotiation is turned on  FEC mode is Auto
+  Input flow-control is off, output flow-control is off
+  Auto-mdix is turned off
+  Rate mode is dedicated
+  Switchport monitor is off
+  EtherType is 0x8100
+  EEE (efficient-ethernet) : n/a
+    admin fec state is auto, oper fec state is off
+  Last link flapped 1d02h
+  Last clearing of "show interface" counters never
+  66 interface resets
+  Load-Interval #1: 30 seconds
+    30 seconds input rate 8703406992 bits/sec, 6252403 packets/sec
+    30 seconds output rate 8785997232 bits/sec, 6311776 packets/sec
+    input rate 8.70 Gbps, 6.25 Mpps; output rate 8.78 Gbps, 6.31 Mpps
+  Load-Interval #2: 5 minute (300 seconds)
+    300 seconds input rate 8701384224 bits/sec, 6250889 packets/sec
+    300 seconds output rate 8782697128 bits/sec, 6309347 packets/sec
+    input rate 8.70 Gbps, 6.25 Mpps; output rate 8.78 Gbps, 6.31 Mpps
+  RX
+    970740689813 unicast packets  16759879 multicast packets  16839 broadcast packets
+    970757466531 input packets  212940240048313 bytes
+    0 jumbo packets  0 storm suppression bytes
+    0 runts  0 giants  0 CRC  0 no buffer
+    0 input error  0 short frame  0 overrun   0 underrun  0 ignored
+    0 watchdog  0 bad etype drop  0 bad proto drop  0 if down drop
+    0 input with dribble  0 input discard
+    0 Rx pause
+  TX
+    1023192375076 unicast packets  11551048 multicast packets  719813 broadcast packets
+    1023204645937 output packets  216614142423702 bytes
+    0 jumbo packets
+    0 output error  0 collision  0 deferred  0 late collision
+    0 lost carrier  0 no carrier  0 babble  1611439967 output discard
+    0 Tx pause
+
+```
+
+Transciver detail
+
+```
+Ethernet1/3
+    transceiver is present
+    type is 10Gbase-SR
+    name is CISCO-FINISAR
+    part number is FTLX8571D3BCL-C2
+    revision is A
+    serial number is FNS15330HM5
+    nominal bitrate is 10300 MBit/sec
+    Link length supported for 50/125um OM2 fiber is 82 m
+    Link length supported for 62.5/125um fiber is 26 m
+    Link length supported for 50/125um OM3 fiber is 300 m
+    cisco id is 3
+    cisco extended id number is 4
+    cisco part number is 10-2415-03
+    cisco product id is SFP-10G-SR
+    cisco version id is V03
+
+           SFP Detail Diagnostics Information (internal calibration)
+  ----------------------------------------------------------------------------
+                Current              Alarms                  Warnings
+                Measurement     High        Low         High          Low
+  ----------------------------------------------------------------------------
+  Temperature   41.11 C        75.00 C     -5.00 C     70.00 C        0.00 C
+  Voltage        3.28 V         3.63 V      2.97 V      3.46 V        3.13 V
+  Current        7.92 mA       11.80 mA     4.00 mA    10.80 mA       5.00 mA
+  Tx Power      -2.65 dBm       1.69 dBm  -11.30 dBm   -1.30 dBm     -7.30 dBm
+  Rx Power      -2.94 dBm       1.99 dBm  -13.97 dBm   -1.00 dBm     -9.91 dBm
+  Transmit Fault Count = 0
+  ----------------------------------------------------------------------------
+  Note: ++  high-alarm; +  high-warning; --  low-alarm; -  low-warning
+
+```
+
 ## Future work
 
 Test XDP hardware offload mode in a `Netronome Agilio CX Dual-Port 25 Gigabit Ethernet` (yes, I have it)
