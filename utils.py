@@ -1,6 +1,9 @@
+import logging
 import socket
 import fcntl
 import struct
+import subprocess
+
 from pyroute2 import IPRoute
 import json
 import ast
@@ -91,3 +94,32 @@ def get_loaded_xdp_program(interface):
         return link_info["IFLA_XDP"]
 
     return None
+
+def get_ethtool_stats(interface: str) -> dict:
+    """
+    Get NIC statistics from ethtool -S <interface>
+    Returns a dict {stat_name: int_value}
+    """
+    stats = {}
+    try:
+        # Run ethtool -S
+        result = subprocess.run(
+            ["ethtool", "-S", interface],
+            capture_output=True,
+            text=True,
+            check=True
+        )
+        for i,line in enumerate(result.stdout.splitlines()):
+            # Ignore header line
+            if i == 0:
+                continue
+
+            # Lines look like: "     rx_packets: 12345"
+            if ":" in line:
+                key, value = line.split(":", 1)
+                stats[key.strip()] = int(value.strip())
+    except subprocess.CalledProcessError as e:
+        logging.error(e)
+        return {}
+
+    return stats

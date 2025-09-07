@@ -44,13 +44,15 @@ packet_processed_rate = Gauge(name="xdp_packet_processed_rate", documentation="I
 packet_processed = Gauge(name="xdp_packet_processed", documentation="Packets processed", labelnames=["cpu", "interface", "host"], registry=xdp_collector_registry)
 packet_latency = Gauge(name="xdp_packet_latency_ns", documentation="Packets processing latency in nanoseconds", labelnames=["type", "interface", "host"], registry=xdp_collector_registry)
 
-
-interface_stat = Gauge(name="interfaces_stat", documentation="Interface runtime stats", labelnames=["interface", "type", "host"], registry=xdp_collector_registry)
-interface_spec = Gauge(name="interfaces_spec", documentation="Interface specifications", labelnames=["interface", "type", "host"], registry=xdp_collector_registry)
+interface_stat = Gauge(name="xdp_interfaces_stat", documentation="Interface runtime stats", labelnames=["interface", "type", "host"], registry=xdp_collector_registry)
+interface_ethtool_stat = Gauge(name="xdp_interfaces_ethtool_stat", documentation="Interface runtime stats from ethtool, may contains vendor-specific stats", labelnames=["interface", "type", "host"], registry=xdp_collector_registry)
+interface_spec = Gauge(name="xdp_interfaces_spec", documentation="Interface specifications", labelnames=["interface", "type", "host"], registry=xdp_collector_registry)
+interface_qdisk = Gauge(name="xdp_interface_qdisk", documentation="Interface queuing disciplines", labelnames=["interface", "host", "qdisk"], registry=xdp_collector_registry)
 
 xdp_mode = Gauge(name="xdp_mode", documentation="Information", labelnames=["interface", "host", "mode"], registry=xdp_collector_registry)
 xdp_prog_id = Counter(name="xdp_prog_id", documentation="Information", labelnames=["interface", "host"], registry=xdp_collector_registry)
-interface_qdisk = Gauge(name="interface_qdisk", documentation="Interface queuing disciplines", labelnames=["interface", "host", "qdisk"], registry=xdp_collector_registry)
+
+xdp_time_start = Gauge(name="xdp_time_start", documentation="Epoch time in seconds when started", labelnames=["interface", "host"], registry=xdp_collector_registry)
 
 def read_total_packets_processed():
     for k,v in b.get_table("counter").items():
@@ -77,6 +79,7 @@ def packet_rate_counter():
     global packet_counter_per_cpus_last_1s
     global packet_counter_rate_per_cpus_last_1s
 
+
     packet_counter_per_cpus = read_total_packets_processed()
     packet_counter_rate_per_cpus = [x-y for x,y in zip(packet_counter_per_cpus, packet_counter_per_cpus_last_1s)]
 
@@ -90,6 +93,9 @@ def packet_rate_counter():
     packet_processed_rate.labels(cpu="total", interface=DEVICE, host=HOSTNAME).set(sum(packet_counter_rate_per_cpus))
     for i,v in enumerate(packet_counter_rate_per_cpus):
         packet_processed_rate.labels(cpu=str(i), interface=DEVICE, host=HOSTNAME).set(v)
+
+    for k,v in utils.get_ethtool_stats(DEVICE).items():
+        interface_ethtool_stat.labels(interface=DEVICE, host=HOSTNAME, type=k).set(v)
 
 def run_scheduler():
     """Run scheduler loop in background"""
@@ -148,6 +154,8 @@ async def lifespan(app: FastAPI):
     thread.start()
 
     logging.info("✅ Server has started up!")
+
+    xdp_time_start.labels(interface=DEVICE, host=HOSTNAME).set(time.time())
 
     yield
 
