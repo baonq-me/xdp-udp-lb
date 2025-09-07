@@ -12,7 +12,7 @@
 - Carefully tested at `6.25 million`, `170-byte packets` per second (`~8.5Gbps`) using enterprise-grade network devices (`Cisco Nexus 92160YC-X` for packet switching). Average latency is around `174 nanoseconds` and P99 latency is around `595 nanoseconds`
 - Tested by `nc`, `hping3`, and a `kernel-level packet generator`
 
-Note 1: To save CPU workload, this load balancer does not recalculate UDP payload checksum when modifying destination ports.
+Note 1: To save CPU cycles, this load balancer does not recalculate UDP payload checksum when modifying destination ports.
 
 Note 2: Debugging techniques, kernel tuning parameters, NIC parameters, and hardware specs are not included in this repo. If you can not reach `6.25Mpps`, it's not about the code :D
 
