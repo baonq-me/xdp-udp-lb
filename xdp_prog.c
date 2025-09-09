@@ -22,21 +22,18 @@ BPF_RINGBUF_OUTPUT(rb, 4096);
 BPF_ARRAY(backends, struct backend_t, 16);
 
 // Counter for number of backend
-BPF_ARRAY(backend_counter, u64, 1);
+BPF_PERCPU_ARRAY(backend_counter, u64, 1);
 
 // Processed packet counter
 BPF_PERCPU_ARRAY(counter, u64, 1);
 
 // filter: only match this dest ip/port
 BPF_ARRAY(filter_ip, u32, 1);
-BPF_ARRAY(filter_port, u16, 64);
 
 BPF_HASH(filter_ports, __u16, __u8);
 
 // device map for xdp_redirect (filled from user space)
-BPF_DEVMAP(tx_port, 1);
-
-BPF_CPUMAP(cpumap, __MAX_CPU__);
+//BPF_DEVMAP(tx_port, 1);
 
 // Mac address of the load balancer
 struct macaddr {

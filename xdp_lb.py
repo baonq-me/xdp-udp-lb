@@ -141,7 +141,12 @@ async def lifespan(app: FastAPI):
         filter_ports = b["filter_ports"]
         filter_ports[filter_ports.Key(destination_port)] = filter_ports.Leaf(1)
 
-    b["backend_counter"][0] = ctypes.c_uint16(len(xdp_backends))
+
+    leaf_backend_counter = b["backend_counter"].Leaf()
+    for i in range(len(leaf_backend_counter)):
+        leaf_backend_counter[i] = ctypes.c_uint64(len(xdp_backends))
+    b["backend_counter"][ctypes.c_uint32(0)] = leaf_backend_counter
+
 
     # Device to send traffic
     b["tx_port"][0] = ctypes.c_int(socket.if_nametoindex(DEVICE))
