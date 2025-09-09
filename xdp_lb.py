@@ -55,11 +55,12 @@ xdp_prog_id = Counter(name="xdp_prog_id", documentation="Information", labelname
 xdp_time_start = Gauge(name="xdp_time_start", documentation="Epoch time in seconds when started", labelnames=["interface", "host"], registry=xdp_collector_registry)
 
 def read_total_packets_processed():
-    for k,v in b.get_table("counter").items():
+    for k,v in b["counter"].items():
         per_cpu_vals = list(v)
         return per_cpu_vals
 
     return [0] * cpu_count()
+
 
 def packet_rate_counter():
 
@@ -165,6 +166,38 @@ async def lifespan(app: FastAPI):
     b.remove_xdp(DEVICE, 0)
 
 app = FastAPI(lifespan=lifespan)
+
+
+@app.get("/configs")
+def get_configs():
+
+    filter_ip = socket.inet_ntoa(struct.pack("I", b["filter_ip"][ctypes.c_int(0)].value))
+    filter_ports = []
+    backends = []
+
+    for i in range(len(b["backends"])):  # len(table) = array size
+        entry = b["backends"][ctypes.c_int(i)]
+        if not entry.ip:  # skip empty slots
+            continue
+
+        backends.append({
+            "ip": socket.inet_ntoa(struct.pack("I", entry.ip)),
+            "port": socket.ntohs(entry.port),
+            "mac": ":".join(f"{mac_bin:02x}" for mac_bin in entry.mac)
+        })
+
+    for k, v in b["filter_ports"].items():
+        port = k.value  # the stored destination_port
+        enabled = v.value  # the value you stored (1)
+        if enabled:
+            filter_ports.append(port)
+
+    return {
+        "filter_ip": filter_ip,
+        "filter_ports": filter_ports,
+        "backends": backends,
+    }
+
 
 @app.get("/metrics")
 def get_metrics():
