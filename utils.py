@@ -4,6 +4,7 @@ import fcntl
 import struct
 import subprocess
 
+import netifaces
 from pyroute2 import IPRoute
 import json
 import ast
@@ -123,3 +124,15 @@ def get_ethtool_stats(interface: str) -> dict:
         return {}
 
     return stats
+
+def get_default_gateway_ip():
+    gws = netifaces.gateways()
+    return gws['default'][netifaces.AF_INET][0]
+
+def get_mac_from_arp(ip):
+    with open("/proc/net/arp") as f:
+        for line in f.readlines()[1:]:  # skip header
+            fields = line.split()
+            if fields[0] == ip:
+                return fields[3]  # MAC address column
+    return None

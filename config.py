@@ -52,8 +52,11 @@ def get_backends():
     for i, (ip, port) in enumerate(servers):
         ip_mac = utils.get_route_mac(ip)
         if not ip_mac:
-            logging.info(f"Backend IP {ip} not exist in routing table or can not be reached through interface {device}, ignore")
-            continue
-        backends.append(make_backend(ip, port, ip_mac["mac_array"]))
+            default_gw_mac = utils.get_mac_from_arp(utils.get_default_gateway_ip())
+            logging.warning(f"Backend IP {ip} not exist in routing table, using default gateway mac address {default_gw_mac}")
+            backends.append(make_backend(ip, port, utils.mac_string_to_int(default_gw_mac)))
+
+        else:
+            backends.append(make_backend(ip, port, ip_mac["mac_array"]))
 
     return backends
