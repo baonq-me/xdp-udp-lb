@@ -298,8 +298,9 @@ int xdp_prog(struct xdp_md *ctx) {
     if (*pktcnt % 100 == 0)
     {
         int time_delta = bpf_ktime_get_ns() - time_start;
+#ifdef DEBUG
         bpf_trace_printk("time delta: %d", time_delta);
-
+#endif
         struct event *event = rb.ringbuf_reserve(sizeof(struct event));
         if (!event) {
             bpf_trace_printk("Cannot allocate %d bytes from ring buffer\n", sizeof(struct event));
