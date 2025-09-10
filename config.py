@@ -28,6 +28,8 @@ servers = parse_config_backends(os.environ.get("BACKENDS", default="127.0.0.1:50
 device_in = os.environ.get("INTERFACE_IN", default="eth0")
 device_out = os.environ.get("INTERFACE_OUT", default="eth0")
 
+vip = os.environ.get("INTERFACE_IN_VIP", "")
+
 listen_host = os.environ.get("LISTEN_HOST", default="0.0.0.0")
 listen_port = int(os.environ.get("LISTEN_PORT", default="8000"))
 
