@@ -14,14 +14,14 @@
 
 Note 1: To save CPU cycles, this load balancer does not recalculate UDP payload checksum when modifying destination ports.
 
-Note 2: Debugging techniques, kernel tuning parameters, NIC parameters, and hardware specs are not included in this repo. If you can not reach `6.25Mpps`, it's not about the code :D
+Note 2: Debugging techniques, kernel tuning parameters, NIC parameters, and hardware specs are not included in this repo. Under default configurations and most compatible mode (`XDP_FLAGS_SKB_MODE`), the code can process around `~2M packet/s`
 
 ## Getting started
 
 - Step 1: Prepare a Ubuntu 24.04 or Rocky 9 machine
 - Step 2: Install bcc at [https://github.com/iovisor/bcc](https://github.com/iovisor/bcc)
 - Step 3: `pip install -r requirements.txt`
-- Step 4: Update `config.py`
+- Step 4: Update `env` file
 - Step 5: `python xdb_lb.py`
 
 Sample application log
@@ -222,6 +222,44 @@ xdp_prog_id_created{host="apollo",interface="enp23s0f0np0"} 1.7572184751152325e+
 interface_qdisk{host="apollo",interface="enp23s0f0np0",qdisk="mq"} 1.0
 ```
 
+Sample get configs API
+
+```
+curl 127.0.0.1:8000/api/v1/configs
+{
+  "device_in": "eth0",
+  "device_in_ip": "172.31.10.51",
+  "device_out": "eth0",
+  "device_out_ip": "172.31.10.51",
+  "default_gateway_ip": " 172.31.0.1",
+  "default_gateway_mac": "3c:8a:b0:e4:da:01",
+  "filter_ip": "172.31.10.51",
+  "filter_ports": [
+    5000,
+    5001,
+    5002
+  ],
+  "backends": [
+    {
+      "ip": "172.31.0.3",
+      "port": 5555,
+      "mac": "2a:48:66:a4:5c:0a"
+    },
+    {
+      "ip": "172.31.0.4",
+      "port": 5555,
+      "mac": "3c:8a:b0:e4:da:01"
+    },
+    {
+      "ip": "172.31.0.5",
+      "port": 5555,
+      "mac": "3e:36:bb:67:41:c1"
+    }
+  ]
+}
+```
+
+
 ## Port statistics
 
 Interface detail
@@ -315,7 +353,7 @@ Ethernet1/3
 
 ## Future work
 
-Test XDP hardware offload mode in a `Netronome Agilio CX Dual-Port 25 Gigabit Ethernet` (yes, I have it)
+Test XDP hardware offload mode in a `Netronome Agilio CX Dual-Port 25 Gigabit Ethernet`
 
 ![alt text](smartnic.jpg "smartnic")
 
