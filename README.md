@@ -9,6 +9,7 @@
 
 - Load balance UDP packets to multiple backends (configurable destination IP and Port)
 - Prometheus exporter metrics
+- Support virtual IP address for the load balancer
 - Carefully tested at `6.25 million`, `170-byte packets` per second (`~8.5Gbps`) using enterprise-grade network devices (`Cisco Nexus 92160YC-X` for packet switching). Average latency is around `174 nanoseconds` and P99 latency is around `595 nanoseconds`. Total packets processed during the test was `3.1 trillion (RX+TX)`
 - Tested by `nc`, `hping3`, and a `kernel-level packet generator`
 
