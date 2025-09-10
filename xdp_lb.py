@@ -5,13 +5,17 @@ import threading
 import time
 from contextlib import asynccontextmanager
 from multiprocessing import cpu_count
-from fastapi.middleware.gzip import GZipMiddleware
+
 import numpy as np
 import schedule
 import uvicorn
 from bcc import BPF
 from fastapi import FastAPI
+from fastapi.middleware.gzip import GZipMiddleware
 from prometheus_client import *
+from scapy.arch import get_if_hwaddr
+from scapy.layers.l2 import ARP, Ether
+from scapy.sendrecv import sendp
 from starlette.responses import Response
 
 import config
@@ -93,9 +97,25 @@ def packet_rate_counter():
     for k,v in utils.get_ethtool_stats(config.device_in).items():
         interface_ethtool_stat.labels(interface=config.device_in, host=HOSTNAME, type=k).set(v)
 
+def broadcast_arp():
+    ip = config.vip
+    mac = get_if_hwaddr(config.device_in)
+
+    logging.info(f"Broadcasting ARP for {ip} ({mac}) on {config.device_in} ...")
+
+    ether = Ether(dst="ff:ff:ff:ff:ff:ff")
+    arp = ARP(op=2, psrc=ip, hwsrc=mac, pdst=ip, hwdst="00:00:00:00:00:00")
+    packet = ether / arp
+
+    sendp(packet, iface=config.device_in, verbose=False)
+
+
 def run_scheduler():
     """Run scheduler loop in background"""
     schedule.every(1).seconds.do(packet_rate_counter)
+    if config.vip != "":
+        schedule.every(3).seconds.do(broadcast_arp)
+
     while True:
         schedule.run_pending()
         time.sleep(1)
@@ -128,11 +148,12 @@ async def lifespan(app: FastAPI):
     for i, backend in enumerate(xdp_backends):
         b["backends"][i] = backend
 
-    destination_ip = utils.get_ip_address(config.device_in)
-    b["filter_ip"][0] = ctypes.c_uint32(struct.unpack("I", socket.inet_aton(destination_ip))[0])
+    filter_ip = utils.get_ip_address(config.device_in) if config.vip == "" else config.vip
+    logging.info(f"Filter IP: {filter_ip}")
+    b["filter_ip"][0] = ctypes.c_uint32(struct.unpack("I", socket.inet_aton(filter_ip))[0])
     logging.info(f"Max CPUs: {cpu_count()}")
     for destination_port in config.destination_ports:
-        logging.info(f"Filter destination: {destination_ip}:{destination_port}")
+        logging.info(f"Filter destination: {filter_ip}:{destination_port}")
         filter_ports = b["filter_ports"]
         filter_ports[filter_ports.Key(destination_port)] = filter_ports.Leaf(1)
 
@@ -152,7 +173,7 @@ async def lifespan(app: FastAPI):
         logging.info(f"Setting out ip address to {source_ip_out}")
         b["source_ip_out"][0] = ctypes.c_uint32(struct.unpack("I", socket.inet_aton(source_ip_out))[0])
     else:
-        b["source_ip_out"][0] = ctypes.c_uint32(struct.unpack("I", socket.inet_aton(destination_ip))[0])
+        b["source_ip_out"][0] = ctypes.c_uint32(struct.unpack("I", socket.inet_aton(filter_ip))[0])
 
 
     # Load balancer mac address
@@ -204,7 +225,7 @@ def get_configs():
 
     return {
         "device_in": config.device_in,
-        "device_in_ip": get_ip_address(config.device_in),
+        "device_in_ip": get_ip_address(config.device_in) if config.vip == "" else config.vip,
         "device_out": config.device_out,
         "device_out_ip": get_ip_address(config.device_out),
         "default_gateway_ip": get_default_gateway_ip(),

@@ -2,9 +2,12 @@
 #include <uapi/linux/bpf.h>
 #include <uapi/linux/if_ether.h>
 #include <uapi/linux/ip.h>
+#include <uapi/linux/icmp.h>
 #include <uapi/linux/udp.h>
 #include <uapi/linux/in.h>
+
 #define MAX_UDP_LENGTH 1500
+#define DEFAULT_TTL 64
 
 //#define DEBUG 1
 
@@ -80,49 +83,60 @@ static __always_inline __u16 iph_csum2(struct iphdr *ip) {
 
 }
 
+// https://github.com/facebookincubator/katran/blob/8f4b9b5badcd458084bcab805403616df524f87e/katran/lib/bpf/handle_icmp.h#L40
 __attribute__((__always_inline__))
-static inline __u16 caludpcsum(struct iphdr *ip, struct udphdr *udp, void *data_end)
-{
-    __u32 csum_buffer = 0;
-    __u16 *buf = (void *)udp;
+static inline int swap_mac_and_send(void* data, void* data_end) {
+    struct ethhdr* eth;
+    unsigned char tmp_mac[ETH_ALEN];
+    eth = data;
+    memcpy(tmp_mac, eth->h_source, ETH_ALEN);
+    memcpy(eth->h_source, eth->h_dest, ETH_ALEN);
+    memcpy(eth->h_dest, tmp_mac, ETH_ALEN);
+    return XDP_TX;
+}
 
-    // Compute pseudo-header checksum
-    csum_buffer += (__u16)ip->saddr;
-    csum_buffer += (__u16)(ip->saddr >> 16);
-    csum_buffer += (__u16)ip->daddr;
-    csum_buffer += (__u16)(ip->daddr >> 16);
-    csum_buffer += (__u16)ip->protocol << 8;
-    csum_buffer += bpf_ntohs(udp->len);
+// https://github.com/facebookincubator/katran/blob/8f4b9b5badcd458084bcab805403616df524f87e/katran/lib/bpf/csum_helpers.h#L50
+__attribute__((__always_inline__)) static inline void ipv4_csum_inline(void* iph, __u64* csum) {
+    __u16* next_iph_u16 = (__u16*)iph;
+    #pragma clang loop unroll(full)
+    for (int i = 0; i < sizeof(struct iphdr) >> 1; i++) {
+    *csum += *next_iph_u16++;
+    }
+    *csum = csum_fold_helper(*csum);
+}
 
-#ifdef DEBUG
-    bpf_trace_printk("UDP payload size: %d bytes", bpf_ntohs(udp->len));
-    bpf_trace_printk("csum_buffer: 0x%x", csum_buffer);
-#endif
+// https://github.com/facebookincubator/katran/blob/8f4b9b5badcd458084bcab805403616df524f87e/katran/lib/bpf/handle_icmp.h#L62
+__attribute__((__always_inline__))
+static inline int send_icmp_reply(void* data, void* data_end) {
+      struct iphdr* iph;
+      struct icmphdr* icmp_hdr;
+      __u32 tmp_addr = 0;
+      __u64 csum = 0;
+      __u64 off = 0;
 
-    // Compute checksum on udp header + payload
-    for (int i = 0; i < MAX_UDP_LENGTH; i += 2) {
-      if ((void *)(buf + 1) > data_end) {
-        break;
+      if ((data + sizeof(struct ethhdr) + sizeof(struct iphdr) + sizeof(struct icmphdr)) > data_end) {
+        return XDP_DROP;
       }
 
-#ifdef DEBUG
-      bpf_trace_printk("0x%x", *buf);
-#endif
-      csum_buffer += *buf;
-      buf++;
-    }
-
-    if ((void *)buf + 1 <= data_end) {
-      // In case payload is not 2 bytes aligned
-      csum_buffer += *(__u8 *)buf;
-    }
-
-
-    __u16 csum = (__u16)csum_buffer + (__u16)(csum_buffer >> 16);
-    csum = csum & 0xFFFF;
-
-    return (__u16) csum;
+      off += sizeof(struct ethhdr);
+      iph = data + off;
+      off += sizeof(struct iphdr);
+      icmp_hdr = data + off;
+      icmp_hdr->type = ICMP_ECHOREPLY;
+      // the only diff between icmp echo and reply hdrs is type;
+      // in first case it's 8; in second it's 0; so instead of recalc
+      // checksum from ground up we will just adjust it.
+      icmp_hdr->checksum += 0x0008;
+      iph->ttl = DEFAULT_TTL;
+      tmp_addr = iph->daddr;
+      iph->daddr = iph->saddr;
+      iph->saddr = tmp_addr;
+      iph->check = 0;
+      ipv4_csum_inline(iph, &csum);
+      iph->check = csum;
+      return swap_mac_and_send(data, data_end);
 }
+
 
 
 int xdp_prog(struct xdp_md *ctx) {
@@ -151,19 +165,6 @@ int xdp_prog(struct xdp_md *ctx) {
         return XDP_PASS;
     }
 
-    // Stop program if packet is not UDP
-    if (ip->protocol != IPPROTO_UDP) {
-        return XDP_PASS;
-    }
-
-    struct udphdr *udp = (void *)(ip + 1);
-    //caludpcsum(ip, udp, data_end);
-
-    // Check valid UDP packet
-    if ((void *)(udp + 1) > data_end) {
-        return XDP_PASS;
-    }
-
     // Filter IP
     u32 fk = 0;
     u32 *fip = filter_ip.lookup(&fk);
@@ -171,6 +172,37 @@ int xdp_prog(struct xdp_md *ctx) {
 #ifdef DEBUG
         bpf_trace_printk("Not match filter ip");
 #endif
+        return XDP_PASS;
+    }
+
+
+    // Handle ICMP
+    if (ip->protocol == IPPROTO_ICMP) {
+        struct icmphdr *icmph = (struct icmphdr *)(ip + 1);
+        if ((void *)(icmph + 1) > data_end) {
+            return XDP_PASS;
+        }
+
+        if (icmph->type != ICMP_ECHO) {
+            return XDP_PASS;
+        }
+
+#ifdef DEBUG
+        bpf_trace_printk("Replying to ICMP_ECHO to filter ip %d", *fip);
+#endif
+
+        return send_icmp_reply(data, data_end);
+    }
+
+    // Filter protocol
+    if (ip->protocol != IPPROTO_UDP) {
+        return XDP_PASS;
+    }
+
+    struct udphdr *udp = (void *)(ip + 1);
+
+    // Check valid UDP packet
+    if ((void *)(udp + 1) > data_end) {
         return XDP_PASS;
     }
 
@@ -204,8 +236,8 @@ int xdp_prog(struct xdp_md *ctx) {
 #ifdef DEBUG
         bpf_trace_printk("Receive UDP packet with size %d", pkt_size);
 #endif
-        //(*pktcnt)++;
-        __sync_fetch_and_add(pktcnt, 1);
+        (*pktcnt)++;
+        //__sync_fetch_and_add(pktcnt, 1);
     } else {
         return XDP_PASS;
     }
@@ -334,4 +366,5 @@ int xdp_prog(struct xdp_md *ctx) {
     } else {
         return tx_port.redirect_map(0, 0);
     }
+
 }
