@@ -167,7 +167,7 @@ int xdp_prog(struct xdp_md *ctx) {
     // Filter IP
     u32 fk = 0;
     u32 *fip = filter_ip.lookup(&fk);
-    if (!fip) {
+    if (!fip || *fip != ip->daddr) {
 #ifdef DEBUG
         bpf_trace_printk("Not match filter ip");
 #endif
