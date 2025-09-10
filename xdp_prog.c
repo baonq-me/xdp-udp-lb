@@ -29,11 +29,11 @@ BPF_PERCPU_ARRAY(counter, u64, 1);
 
 // filter: only match this dest ip/port
 BPF_ARRAY(filter_ip, u32, 1);
-
 BPF_HASH(filter_ports, __u16, __u8);
+BPF_ARRAY(source_ip_out, u32, 1);
 
 // device map for xdp_redirect (filled from user space)
-//BPF_DEVMAP(tx_port, 1);
+BPF_DEVMAP(tx_port, 1);
 
 // Mac address of the load balancer
 struct macaddr {
@@ -240,8 +240,23 @@ int xdp_prog(struct xdp_md *ctx) {
 #endif
 
     // L3 rewrite
+
+    u32 sk = 0;
+    u32 *spo = source_ip_out.lookup(&sk);
+    if (!spo || *spo == *fip) {
+#ifdef DEBUG
+        bpf_trace_printk("Source IP out not found, using filter ip ");
+#endif
+        ip->saddr = *fip;
+    } else {
+#ifdef DEBUG
+        bpf_trace_printk("Source IP out: %d", *spo);
+#endif
+
+        ip->saddr = *spo;
+    }
+
     ip->daddr = be->ip;
-    ip->saddr = *fip;
     udp->dest = be->port;
 
 #ifdef DEBUG
@@ -311,8 +326,12 @@ int xdp_prog(struct xdp_md *ctx) {
 
     }
 
-    return XDP_TX;
-
-    // Used when TX is on another NIC
-    //return tx_port.redirect_map(0, 0);
+    if (!spo || *spo == *fip) {
+#ifdef DEBUG
+        bpf_trace_printk("Source IP out not found, returning XDP_TX");
+#endif
+        return XDP_TX;
+    } else {
+        return tx_port.redirect_map(0, 0);
+    }
 }

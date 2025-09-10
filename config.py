@@ -25,7 +25,12 @@ def parse_config_backends(s):
 
 # Use arp -n to get destination mac address
 servers = parse_config_backends(os.environ.get("BACKENDS", default="127.0.0.1:5000"))
-device = os.environ.get("INTERFACE", default="eth0")
+device_in = os.environ.get("INTERFACE_IN", default="eth0")
+device_out = os.environ.get("INTERFACE_OUT", default="eth0")
+
+listen_host = os.environ.get("LISTEN_HOST", default="0.0.0.0")
+listen_port = int(os.environ.get("LISTEN_PORT", default="8000"))
+
 destination_ports = [int(j) for j in os.environ.get("DESTINATION_PORTS", default=','.join([str(5000+i) for i in range(cpu_count())])).split(",")]
 xdp_mode = os.environ.get("XDP_MODE", default="XDP_FLAGS_SKB_MODE")
 
@@ -52,7 +57,7 @@ def get_backends():
     for i, (ip, port) in enumerate(servers):
         ip_mac = utils.get_route_mac(ip)
         if not ip_mac:
-            default_gw_mac = utils.get_mac_from_arp(utils.get_default_gateway_ip())
+            default_gw_mac = utils.get_mac_str_by_ip(utils.get_default_gateway_ip())
             logging.warning(f"Backend IP {ip} not exist in routing table, using default gateway mac address {default_gw_mac}")
             backends.append(make_backend(ip, port, utils.mac_string_to_int(default_gw_mac)))
 

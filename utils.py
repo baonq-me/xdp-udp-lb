@@ -68,7 +68,7 @@ def get_link_attrs(attrs):
                 return "can not parse data"
 
 
-def get_link_info(iface):
+def get_link_info_by_interface(iface):
     info = {}
     with IPRoute() as ipr:
         ifindex = socket.if_nametoindex(iface)
@@ -89,7 +89,7 @@ def get_link_info(iface):
     return info
 
 def get_loaded_xdp_program(interface):
-    link_info = get_link_info(interface)
+    link_info = get_link_info_by_interface(interface)
 
     if link_info.get("IFLA_XDP", {}).get("IFLA_XDP_ATTACHED", None):
         return link_info["IFLA_XDP"]
@@ -129,7 +129,7 @@ def get_default_gateway_ip():
     gws = netifaces.gateways()
     return gws['default'][netifaces.AF_INET][0]
 
-def get_mac_from_arp(ip):
+def get_mac_str_by_ip(ip):
     with open("/proc/net/arp") as f:
         for line in f.readlines()[1:]:  # skip header
             fields = line.split()

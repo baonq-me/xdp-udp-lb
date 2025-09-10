@@ -1,5 +1,6 @@
 # Interface on load balancer which XDP program will be deployed
-INTERFACE=eth0
+INTERFACE_IN=eth0
+INTERFACE_OUT=eth1
 
 # IP and port for metrics server
 HTTP_HOST=0.0.0.0
