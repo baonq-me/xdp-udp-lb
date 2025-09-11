@@ -12,6 +12,7 @@ import uvicorn
 from bcc import BPF
 from fastapi import FastAPI
 from fastapi.middleware.gzip import GZipMiddleware
+from fastapi.openapi.utils import get_openapi
 from prometheus_client import *
 from scapy.arch import get_if_hwaddr
 from scapy.layers.l2 import ARP, Ether
@@ -20,7 +21,6 @@ from starlette.responses import Response
 
 import config
 import utils
-from object import *
 from utils import *
 
 logging.basicConfig(filename="/dev/stdout",
@@ -101,7 +101,7 @@ def broadcast_arp():
     ip = config.vip
     mac = get_if_hwaddr(config.device_in)
 
-    logging.info(f"Broadcasting ARP for {ip} ({mac}) on {config.device_in} ...")
+    logging.debug(f"Broadcasting ARP for {ip} ({mac}) on {config.device_in} ...")
 
     ether = Ether(dst="ff:ff:ff:ff:ff:ff")
     arp = ARP(op=2, psrc=ip, hwsrc=mac, pdst=ip, hwdst="00:00:00:00:00:00")
@@ -114,7 +114,7 @@ def run_scheduler():
     """Run scheduler loop in background"""
     schedule.every(1).seconds.do(packet_rate_counter)
     if config.vip != "":
-        schedule.every(3).seconds.do(broadcast_arp)
+        schedule.every(5).seconds.do(broadcast_arp)
 
     while True:
         schedule.run_pending()
@@ -144,27 +144,12 @@ async def lifespan(app: FastAPI):
 
     b['rb'].open_ring_buffer(print_event)
 
-    xdp_backends = config.get_backends()
-    for i, backend in enumerate(xdp_backends):
-        b["backends"][i] = backend
-
     filter_ip = utils.get_ip_address(config.device_in) if config.vip == "" else config.vip
-    logging.info(f"Filter IP: {filter_ip}")
-    b["filter_ip"][0] = ctypes.c_uint32(struct.unpack("I", socket.inet_aton(filter_ip))[0])
-    logging.info(f"Max CPUs: {cpu_count()}")
-    for destination_port in config.destination_ports:
-        logging.info(f"Filter destination: {filter_ip}:{destination_port}")
-        filter_ports = b["filter_ports"]
-        filter_ports[filter_ports.Key(destination_port)] = filter_ports.Leaf(1)
 
-
-    leaf_backend_counter = b["backend_counter"].Leaf()
-    for i in range(len(leaf_backend_counter)):
-        leaf_backend_counter[i] = ctypes.c_uint64(len(xdp_backends))
-    b["backend_counter"][ctypes.c_uint32(0)] = leaf_backend_counter
-
+    set_backends(filter_ip, config.get_backends())
 
     # Device to send traffic
+
     if config.device_in != config.device_out:
         logging.info(f"Setting out interface to {config.device_out}")
         b["tx_port"][0] = ctypes.c_int(socket.if_nametoindex(config.device_out))
@@ -195,11 +180,51 @@ async def lifespan(app: FastAPI):
     logging.info(f"Removing XDP prog from NIC {config.device_in}")
     b.remove_xdp(config.device_in, 0)
 
+
+def custom_openapi():
+
+    openapi_schema = get_openapi(
+        title="XDP UDP load balancer",
+        version="1.0",
+        summary="XDP UDP load balancer summary",
+        description="XDP UDP load balancer description",
+        routes=app.routes,
+    )
+    openapi_schema["info"]["x-logo"] = {
+        "url": "https://fastapi.tiangolo.com/img/logo-margin/logo-teal.png"
+    }
+    app.openapi_schema = openapi_schema
+
+    return app.openapi_schema
+
+
 app = FastAPI(lifespan=lifespan)
 app.add_middleware(GZipMiddleware, minimum_size=1024, compresslevel=5)
+app.openapi = custom_openapi
 
 
-@app.get("/api/v1/configs")
+def set_backends(filter_ip, xdp_backends):
+
+    for i, backend in enumerate(xdp_backends):
+        b["backends"][i] = backend
+
+    logging.info(f"Filter IP: {filter_ip}")
+    b["filter_ip"][0] = ctypes.c_uint32(struct.unpack("I", socket.inet_aton(filter_ip))[0])
+    filter_ports = b["filter_ports"]
+
+    logging.info(f"Max CPUs: {cpu_count()}")
+    for destination_port in config.destination_ports:
+        logging.info(f"Filter destination: {filter_ip}:{destination_port}")
+        filter_ports[filter_ports.Key(destination_port)] = filter_ports.Leaf(1)
+
+
+    leaf_backend_counter = b["backend_counter"].Leaf()
+    for i in range(len(leaf_backend_counter)):
+        leaf_backend_counter[i] = ctypes.c_uint64(len(xdp_backends))
+    b["backend_counter"][ctypes.c_uint32(0)] = leaf_backend_counter
+
+
+@app.get("/api/v1/configs", summary="Get current configurations")
 def get_configs():
 
     filter_ip = socket.inet_ntoa(struct.pack("I", b["filter_ip"][ctypes.c_int(0)].value))
@@ -236,7 +261,7 @@ def get_configs():
     }
 
 
-@app.get("/metrics")
+@app.get("/metrics", summary="Get exported prometheus metrics")
 def get_metrics():
 
     link_info = get_link_info_by_interface(config.device_in)
@@ -293,9 +318,17 @@ def get_metrics():
         media_type=CONTENT_TYPE_LATEST
     )
 
-
 @app.get("/")
 def root():
+
+    return {
+        "docs": "/docs",
+        "redoc": "/redoc"
+    }
+
+
+@app.get("/api/v1/rates", summary="Get packet rates per cpu")
+def get_packet_rates():
 
     global packet_counter_per_cpus_last_1s
     global packet_counter_rate_per_cpus_last_1s
@@ -312,12 +345,13 @@ def print_event(ctx, data, size):
 
     packet_latency_bucket.append(event.time_delta)
 
-@app.get("/api/v1/links")
+@app.get("/api/v1/links", summary="Get links info")
 def get_link_info():
     return {
         "device_in": utils.get_link_info_by_interface(config.device_in),
         "device_out": utils.get_link_info_by_interface(config.device_out)
     }
+
 
 if __name__ == "__main__":
 
