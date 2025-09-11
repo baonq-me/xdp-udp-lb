@@ -1,16 +1,18 @@
 import collections
+import json
 import os
 import sys
 import threading
 import time
 from contextlib import asynccontextmanager
 from multiprocessing import cpu_count
-
+from typing import List
+import config
 import numpy as np
 import schedule
 import uvicorn
 from bcc import BPF
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.openapi.utils import get_openapi
 from prometheus_client import *
@@ -18,8 +20,6 @@ from scapy.arch import get_if_hwaddr
 from scapy.layers.l2 import ARP, Ether
 from scapy.sendrecv import sendp
 from starlette.responses import Response
-
-import config
 import utils
 from utils import *
 
@@ -144,12 +144,13 @@ async def lifespan(app: FastAPI):
 
     b['rb'].open_ring_buffer(print_event)
 
-    filter_ip = utils.get_ip_address(config.device_in) if config.vip == "" else config.vip
+    logging.info(f"Filter IP: {config.filter_ip}")
+    logging.info(f"Max CPUs: {cpu_count()}")
 
-    set_backends(filter_ip, config.get_backends())
+    set_backends(get_backends(config.servers))
+    set_filters(config.filter_ip, config.destination_ports)
 
     # Device to send traffic
-
     if config.device_in != config.device_out:
         logging.info(f"Setting out interface to {config.device_out}")
         b["tx_port"][0] = ctypes.c_int(socket.if_nametoindex(config.device_out))
@@ -158,7 +159,7 @@ async def lifespan(app: FastAPI):
         logging.info(f"Setting out ip address to {source_ip_out}")
         b["source_ip_out"][0] = ctypes.c_uint32(struct.unpack("I", socket.inet_aton(source_ip_out))[0])
     else:
-        b["source_ip_out"][0] = ctypes.c_uint32(struct.unpack("I", socket.inet_aton(filter_ip))[0])
+        b["source_ip_out"][0] = ctypes.c_uint32(struct.unpack("I", socket.inet_aton(config.filter_ip))[0])
 
 
     # Load balancer mac address
@@ -203,34 +204,67 @@ app.add_middleware(GZipMiddleware, minimum_size=1024, compresslevel=5)
 app.openapi = custom_openapi
 
 
-def set_backends(filter_ip, xdp_backends):
+@app.post("/api/v1/backends", summary="Add new backend")
+def add_new_backends(new_backends: List[BackendRequest]):
 
-    for i, backend in enumerate(xdp_backends):
-        b["backends"][i] = backend
+    logging.info("Setting new backends: " + json.dumps([be.model_dump() for be in new_backends]))
 
-    logging.info(f"Filter IP: {filter_ip}")
+    backends = [make_backend(be["ip"], be["port"], mac_string_to_int(be["mac"])) for be in get_backends_from_xdp()]
+
+    if len(new_backends) + len(backends) > b["backends"].max_entries:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Too many backends: {len(new_backends) + len(backends)}. Maximum number of backend is {b['backends'].max_entries}"
+        )
+
+    for backend in new_backends:
+        backends.append(make_backend(
+            backend.ip,
+            backend.port,
+            get_mac_str_by_ip(backend.ip) or mac_string_to_int(get_mac_str_by_ip(get_default_gateway_ip()))
+        ))
+
+    set_backends(backends)
+
+
+    return get_configs()
+
+'''@app.delete("/api/v1/backends", summary="Delete backends")
+def delete_backend():
+
+    backends = get_backends()[:-1]
+
+    set_backends(config.filter_ip, backends)
+
+    return get_configs()'''
+
+
+def set_filters(filter_ip, destination_ports):
+
     b["filter_ip"][0] = ctypes.c_uint32(struct.unpack("I", socket.inet_aton(filter_ip))[0])
     filter_ports = b["filter_ports"]
 
-    logging.info(f"Max CPUs: {cpu_count()}")
-    for destination_port in config.destination_ports:
+    for destination_port in destination_ports:
         logging.info(f"Filter destination: {filter_ip}:{destination_port}")
         filter_ports[filter_ports.Key(destination_port)] = filter_ports.Leaf(1)
 
+def set_backends(backends):
+
+    for i in range(b["backends"].max_entries):
+        b["backends"][i] = backends[i] if i < len(backends) else get_empty_backend()
+
+    #for i, backend in enumerate(backends):
+    #    b["backends"][i] = backend
 
     leaf_backend_counter = b["backend_counter"].Leaf()
     for i in range(len(leaf_backend_counter)):
-        leaf_backend_counter[i] = ctypes.c_uint64(len(xdp_backends))
+        leaf_backend_counter[i] = ctypes.c_uint64(len(backends))
     b["backend_counter"][ctypes.c_uint32(0)] = leaf_backend_counter
 
 
-@app.get("/api/v1/configs", summary="Get current configurations")
-def get_configs():
+def get_backends_from_xdp():
 
-    filter_ip = socket.inet_ntoa(struct.pack("I", b["filter_ip"][ctypes.c_int(0)].value))
-    filter_ports = []
     backends = []
-
     for i in range(len(b["backends"])):  # len(table) = array size
         entry = b["backends"][ctypes.c_int(i)]
         if not entry.ip:  # skip empty slots
@@ -241,6 +275,16 @@ def get_configs():
             "port": socket.ntohs(entry.port),
             "mac": ":".join(f"{mac_bin:02x}" for mac_bin in entry.mac)
         })
+
+    return backends
+
+
+@app.get("/api/v1/configs", summary="Get current configurations")
+def get_configs():
+
+    filter_ip = socket.inet_ntoa(struct.pack("I", b["filter_ip"][ctypes.c_int(0)].value))
+    filter_ports = []
+    backends = get_backends_from_xdp()
 
     for k, v in b["filter_ports"].items():
         port = k.value  # the stored destination_port
@@ -258,6 +302,7 @@ def get_configs():
         "filter_ip": filter_ip,
         "filter_ports": filter_ports,
         "backends": backends,
+        "backend_counter": b["backend_counter"][0][0]
     }
 
 
@@ -352,6 +397,12 @@ def get_link_info():
         "device_out": utils.get_link_info_by_interface(config.device_out)
     }
 
+@app.middleware("http")
+async def custom_server_header(request, call_next):
+    response: Response = await call_next(request)
+    # Override or remove the header
+    response.headers["server"] = "xdp-udp-lb/1.0"
+    return response
 
 if __name__ == "__main__":
 
