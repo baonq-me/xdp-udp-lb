@@ -35,26 +35,38 @@ b = BPF(src_file="xdp_prog.c", cflags=["-w", "-D__MAX_CPU__=%u" % cpu_count()], 
 
 packet_counter_per_cpus_last_1s = [0] * cpu_count()
 packet_counter_rate_per_cpus_last_1s = [0] * cpu_count()
-packet_latency_bucket = collections.deque(maxlen=256*1024)
+packet_latency_bucket = collections.deque(maxlen=256 * 1024)
 
 xdp_collector_registry = CollectorRegistry()
 
-packet_processed_rate = Gauge(name="xdp_packet_processed_rate", documentation="Instant processed packets per second", labelnames=["cpu", "interface", "host"], registry=xdp_collector_registry)
-packet_processed = Gauge(name="xdp_packet_processed", documentation="Packets processed", labelnames=["cpu", "interface", "host"], registry=xdp_collector_registry)
-packet_latency = Gauge(name="xdp_packet_latency_ns", documentation="Packets processing latency in nanoseconds", labelnames=["type", "interface", "host"], registry=xdp_collector_registry)
+packet_processed_rate = Gauge(name="xdp_packet_processed_rate", documentation="Instant processed packets per second",
+                              labelnames=["cpu", "interface", "host"], registry=xdp_collector_registry)
+packet_processed = Gauge(name="xdp_packet_processed", documentation="Packets processed",
+                         labelnames=["cpu", "interface", "host"], registry=xdp_collector_registry)
+packet_latency = Gauge(name="xdp_packet_latency_ns", documentation="Packets processing latency in nanoseconds",
+                       labelnames=["type", "interface", "host"], registry=xdp_collector_registry)
 
-interface_stat = Gauge(name="xdp_interfaces_stat", documentation="Interface runtime stats", labelnames=["interface", "type", "host"], registry=xdp_collector_registry)
-interface_ethtool_stat = Gauge(name="xdp_interfaces_ethtool_stat", documentation="Interface runtime stats from ethtool, may contains vendor-specific stats", labelnames=["interface", "type", "host"], registry=xdp_collector_registry)
-interface_spec = Gauge(name="xdp_interfaces_spec", documentation="Interface specifications", labelnames=["interface", "type", "host"], registry=xdp_collector_registry)
-interface_qdisk = Gauge(name="xdp_interface_qdisk", documentation="Interface queuing disciplines", labelnames=["interface", "host", "qdisk"], registry=xdp_collector_registry)
+interface_stat = Gauge(name="xdp_interfaces_stat", documentation="Interface runtime stats",
+                       labelnames=["interface", "type", "host"], registry=xdp_collector_registry)
+interface_ethtool_stat = Gauge(name="xdp_interfaces_ethtool_stat",
+                               documentation="Interface runtime stats from ethtool, may contains vendor-specific stats",
+                               labelnames=["interface", "type", "host"], registry=xdp_collector_registry)
+interface_spec = Gauge(name="xdp_interfaces_spec", documentation="Interface specifications",
+                       labelnames=["interface", "type", "host"], registry=xdp_collector_registry)
+interface_qdisk = Gauge(name="xdp_interface_qdisk", documentation="Interface queuing disciplines",
+                        labelnames=["interface", "host", "qdisk"], registry=xdp_collector_registry)
 
-xdp_mode = Gauge(name="xdp_mode", documentation="Information", labelnames=["interface", "host", "mode"], registry=xdp_collector_registry)
-xdp_prog_id = Counter(name="xdp_prog_id", documentation="Information", labelnames=["interface", "host"], registry=xdp_collector_registry)
+xdp_mode = Gauge(name="xdp_mode", documentation="Information", labelnames=["interface", "host", "mode"],
+                 registry=xdp_collector_registry)
+xdp_prog_id = Counter(name="xdp_prog_id", documentation="Information", labelnames=["interface", "host"],
+                      registry=xdp_collector_registry)
 
-xdp_time_start = Gauge(name="xdp_time_start", documentation="Epoch time in seconds when started", labelnames=["interface", "host"], registry=xdp_collector_registry)
+xdp_time_start = Gauge(name="xdp_time_start", documentation="Epoch time in seconds when started",
+                       labelnames=["interface", "host"], registry=xdp_collector_registry)
+
 
 def read_total_packets_processed():
-    for k,v in b["counter"].items():
+    for k, v in b["counter"].items():
         per_cpu_vals = list(v)
         return per_cpu_vals
 
@@ -62,40 +74,44 @@ def read_total_packets_processed():
 
 
 def packet_rate_counter():
-
     b.ring_buffer_consume()
 
     latency = np.array(list(packet_latency_bucket))
-    packet_latency.labels(interface=config.device_in, host=HOSTNAME, type="mean").set(0 if len(packet_latency_bucket) == 0 else latency.mean())
-    packet_latency.labels(interface=config.device_in, host=HOSTNAME, type="min").set(0 if len(packet_latency_bucket) == 0 else latency.min())
-    packet_latency.labels(interface=config.device_in, host=HOSTNAME, type="max").set(0 if len(packet_latency_bucket) == 0 else latency.max())
-    packet_latency.labels(interface=config.device_in, host=HOSTNAME, type="std").set(0 if len(packet_latency_bucket) == 0 else latency.std())
-    for p in [25,50,90,95,99]:
-        packet_latency.labels(interface=config.device_in, host=HOSTNAME, type=f"p{p}").set(0.0 if len(packet_latency_bucket) == 0 else float(np.percentile(latency, p)))
+    packet_latency.labels(interface=config.device_in, host=HOSTNAME, type="mean").set(
+        0 if len(packet_latency_bucket) == 0 else latency.mean())
+    packet_latency.labels(interface=config.device_in, host=HOSTNAME, type="min").set(
+        0 if len(packet_latency_bucket) == 0 else latency.min())
+    packet_latency.labels(interface=config.device_in, host=HOSTNAME, type="max").set(
+        0 if len(packet_latency_bucket) == 0 else latency.max())
+    packet_latency.labels(interface=config.device_in, host=HOSTNAME, type="std").set(
+        0 if len(packet_latency_bucket) == 0 else latency.std())
+    for p in [25, 50, 90, 95, 99]:
+        packet_latency.labels(interface=config.device_in, host=HOSTNAME, type=f"p{p}").set(
+            0.0 if len(packet_latency_bucket) == 0 else float(np.percentile(latency, p)))
 
     packet_latency_bucket.clear()
-
 
     global packet_counter_per_cpus_last_1s
     global packet_counter_rate_per_cpus_last_1s
 
-
     packet_counter_per_cpus = read_total_packets_processed()
-    packet_counter_rate_per_cpus = [x-y for x,y in zip(packet_counter_per_cpus, packet_counter_per_cpus_last_1s)]
+    packet_counter_rate_per_cpus = [x - y for x, y in zip(packet_counter_per_cpus, packet_counter_per_cpus_last_1s)]
 
     packet_counter_rate_per_cpus_last_1s = packet_counter_rate_per_cpus
     packet_counter_per_cpus_last_1s = packet_counter_per_cpus
 
     packet_processed.labels(cpu="total", interface=config.device_in, host=HOSTNAME).set(sum(packet_counter_per_cpus))
-    for i,v in enumerate(packet_counter_per_cpus):
+    for i, v in enumerate(packet_counter_per_cpus):
         packet_processed.labels(cpu=str(i), interface=config.device_in, host=HOSTNAME).set(v)
 
-    packet_processed_rate.labels(cpu="total", interface=config.device_in, host=HOSTNAME).set(sum(packet_counter_rate_per_cpus))
-    for i,v in enumerate(packet_counter_rate_per_cpus):
+    packet_processed_rate.labels(cpu="total", interface=config.device_in, host=HOSTNAME).set(
+        sum(packet_counter_rate_per_cpus))
+    for i, v in enumerate(packet_counter_rate_per_cpus):
         packet_processed_rate.labels(cpu=str(i), interface=config.device_in, host=HOSTNAME).set(v)
 
-    for k,v in utils.get_ethtool_stats(config.device_in).items():
+    for k, v in utils.get_ethtool_stats(config.device_in).items():
         interface_ethtool_stat.labels(interface=config.device_in, host=HOSTNAME, type=k).set(v)
+
 
 def broadcast_arp():
     ip = config.vip
@@ -120,6 +136,7 @@ def run_scheduler():
         schedule.run_pending()
         time.sleep(1)
 
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # 🚀 Startup code
@@ -128,7 +145,7 @@ async def lifespan(app: FastAPI):
         logging.info(f"Trying to load XDP program in mode {config.xdp_mode} ...")
         time_start = time.time()
         b.attach_xdp(config.device_in, b.load_func("xdp_prog", BPF.XDP), flags=config.flags[config.xdp_mode])
-        logging.info(f"XDP program loaded in {(time.time() - time_start)*1000:.2f} ms")
+        logging.info(f"XDP program loaded in {(time.time() - time_start) * 1000:.2f} ms")
 
     except Exception as e1:
         logging.exception(e1)
@@ -136,7 +153,7 @@ async def lifespan(app: FastAPI):
         time_start = time.time()
         try:
             b.attach_xdp(config.device_in, b.load_func("xdp_prog", BPF.XDP), flags=config.flags["XDP_FLAGS_SKB_MODE"])
-            logging.info(f"XDP program loaded in skb mode in {(time.time() - time_start)*1000:.2f} ms")
+            logging.info(f"XDP program loaded in skb mode in {(time.time() - time_start) * 1000:.2f} ms")
         except Exception as e2:
             logging.exception(e2)
             logging.info("Can not load XDP program. Exit.")
@@ -161,9 +178,9 @@ async def lifespan(app: FastAPI):
     else:
         b["source_ip_out"][0] = ctypes.c_uint32(struct.unpack("I", socket.inet_aton(config.filter_ip))[0])
 
-
     # Load balancer mac address
-    b["lb_mac"][0] = MacAddr(utils.get_mac_tuple(config.device_in if config.device_in == config.device_out else config.device_out))
+    b["lb_mac"][0] = MacAddr(
+        utils.get_mac_tuple(config.device_in if config.device_in == config.device_out else config.device_out))
 
     logging.info(f"Listening on {config.listen_host}:{config.listen_port} ...")
 
@@ -183,7 +200,6 @@ async def lifespan(app: FastAPI):
 
 
 def custom_openapi():
-
     openapi_schema = get_openapi(
         title="XDP UDP load balancer",
         version="1.0",
@@ -206,7 +222,6 @@ app.openapi = custom_openapi
 
 @app.post("/api/v1/backends", summary="Add new backend")
 def add_new_backends(new_backends: List[BackendRequest]):
-
     logging.info("Setting new backends: " + json.dumps([be.model_dump() for be in new_backends]))
 
     backends = [make_backend(be["ip"], be["port"], mac_string_to_int(be["mac"])) for be in get_backends_from_xdp()]
@@ -226,8 +241,8 @@ def add_new_backends(new_backends: List[BackendRequest]):
 
     set_backends(backends)
 
-
     return get_configs()
+
 
 '''@app.delete("/api/v1/backends", summary="Delete backends")
 def delete_backend():
@@ -240,7 +255,6 @@ def delete_backend():
 
 
 def set_filters(filter_ip, destination_ports):
-
     b["filter_ip"][0] = ctypes.c_uint32(struct.unpack("I", socket.inet_aton(filter_ip))[0])
     filter_ports = b["filter_ports"]
 
@@ -248,12 +262,12 @@ def set_filters(filter_ip, destination_ports):
         logging.info(f"Filter destination: {filter_ip}:{destination_port}")
         filter_ports[filter_ports.Key(destination_port)] = filter_ports.Leaf(1)
 
-def set_backends(backends):
 
+def set_backends(backends):
     for i in range(b["backends"].max_entries):
         b["backends"][i] = backends[i] if i < len(backends) else get_empty_backend()
 
-    #for i, backend in enumerate(backends):
+    # for i, backend in enumerate(backends):
     #    b["backends"][i] = backend
 
     leaf_backend_counter = b["backend_counter"].Leaf()
@@ -263,7 +277,6 @@ def set_backends(backends):
 
 
 def get_backends_from_xdp():
-
     backends = []
     for i in range(len(b["backends"])):  # len(table) = array size
         entry = b["backends"][ctypes.c_int(i)]
@@ -281,7 +294,6 @@ def get_backends_from_xdp():
 
 @app.get("/api/v1/configs", summary="Get current configurations")
 def get_configs():
-
     filter_ip = socket.inet_ntoa(struct.pack("I", b["filter_ip"][ctypes.c_int(0)].value))
     filter_ports = []
     backends = get_backends_from_xdp()
@@ -308,14 +320,16 @@ def get_configs():
 
 @app.get("/metrics", summary="Get exported prometheus metrics")
 def get_metrics():
-
     link_info = get_link_info_by_interface(config.device_in)
 
     for metric_name in link_info["IFLA_STATS64"].keys():
-        interface_stat.labels(interface=config.device_in, host=HOSTNAME, type=metric_name).set(link_info["IFLA_STATS64"][metric_name])
+        interface_stat.labels(interface=config.device_in, host=HOSTNAME, type=metric_name).set(
+            link_info["IFLA_STATS64"][metric_name])
 
-    interface_stat.labels(interface=config.device_in, host=HOSTNAME, type="num_tx_queue").set(link_info["IFLA_NUM_TX_QUEUES"])
-    interface_stat.labels(interface=config.device_in, host=HOSTNAME, type="num_rx_queue").set(link_info["IFLA_NUM_RX_QUEUES"])
+    interface_stat.labels(interface=config.device_in, host=HOSTNAME, type="num_tx_queue").set(
+        link_info["IFLA_NUM_TX_QUEUES"])
+    interface_stat.labels(interface=config.device_in, host=HOSTNAME, type="num_rx_queue").set(
+        link_info["IFLA_NUM_RX_QUEUES"])
 
     interface_stat.labels(interface=config.device_in, host=HOSTNAME, type="mtu").set(link_info["IFLA_MTU"])
     interface_stat.labels(interface=config.device_in, host=HOSTNAME, type="mtu").set(link_info["IFLA_MTU"])
@@ -324,7 +338,8 @@ def get_metrics():
     interface_stat.labels(interface=config.device_in, host=HOSTNAME, type="mtu").set(link_info["IFLA_MTU"])
 
     for metric_name in link_info["IFLA_AF_SPEC"]["AF_INET"].keys():
-        interface_spec.labels(interface=config.device_in, host=HOSTNAME, type=metric_name).set(link_info["IFLA_AF_SPEC"]["AF_INET"][metric_name])
+        interface_spec.labels(interface=config.device_in, host=HOSTNAME, type=metric_name).set(
+            link_info["IFLA_AF_SPEC"]["AF_INET"][metric_name])
 
     # XDP mode
     '''
@@ -333,13 +348,13 @@ def get_metrics():
         "IFLA_XDP_ATTACHED": "xdpgeneric",
         "IFLA_XDP_PROG_ID": 1023
     },
-    
+
     "IFLA_XDP": {
         "IFLA_XDP_DRV_PROG_ID": 1047,
         "IFLA_XDP_ATTACHED": "xdp",
         "IFLA_XDP_PROG_ID": 1047
     },
-    
+
     "IFLA_XDP": {
         "IFLA_XDP_ATTACHED": null
     },
@@ -349,9 +364,11 @@ def get_metrics():
     xdp_prog_id.clear()
     xdp_mode.clear()
 
-    if "IFLA_XDP" in link_info.keys() and "IFLA_XDP_ATTACHED" in link_info["IFLA_XDP"].keys() and link_info["IFLA_XDP"]["IFLA_XDP_ATTACHED"]:
+    if "IFLA_XDP" in link_info.keys() and "IFLA_XDP_ATTACHED" in link_info["IFLA_XDP"].keys() and link_info["IFLA_XDP"][
+        "IFLA_XDP_ATTACHED"]:
         xdp_prog_id.labels(interface=config.device_in, host=HOSTNAME).inc(link_info["IFLA_XDP"].get("IFLA_XDP_PROG_ID"))
-        xdp_mode.labels(interface=config.device_in, host=HOSTNAME, mode=link_info["IFLA_XDP"]["IFLA_XDP_ATTACHED"]).set(1)
+        xdp_mode.labels(interface=config.device_in, host=HOSTNAME, mode=link_info["IFLA_XDP"]["IFLA_XDP_ATTACHED"]).set(
+            1)
     else:
         xdp_mode.labels(interface=config.device_in, host=HOSTNAME, mode="").set(0)
 
@@ -363,9 +380,9 @@ def get_metrics():
         media_type=CONTENT_TYPE_LATEST
     )
 
+
 @app.get("/")
 def root():
-
     return {
         "docs": "/docs",
         "redoc": "/redoc"
@@ -374,7 +391,6 @@ def root():
 
 @app.get("/api/v1/rates", summary="Get packet rates per cpu")
 def get_packet_rates():
-
     global packet_counter_per_cpus_last_1s
     global packet_counter_rate_per_cpus_last_1s
 
@@ -383,12 +399,14 @@ def get_packet_rates():
         "packet_rate": packet_counter_rate_per_cpus_last_1s
     }
 
+
 def print_event(ctx, data, size):
     event = b['rb'].event(data)
-    #print(f"Receive packet size {event.pkt_size}")
-    #print(f"Receive time delta  {event.time_delta} ns")
+    # print(f"Receive packet size {event.pkt_size}")
+    # print(f"Receive time delta  {event.time_delta} ns")
 
     packet_latency_bucket.append(event.time_delta)
+
 
 @app.get("/api/v1/links", summary="Get links info")
 def get_link_info():
@@ -397,6 +415,7 @@ def get_link_info():
         "device_out": utils.get_link_info_by_interface(config.device_out)
     }
 
+
 @app.middleware("http")
 async def custom_server_header(request, call_next):
     response: Response = await call_next(request)
@@ -404,11 +423,13 @@ async def custom_server_header(request, call_next):
     response.headers["server"] = "xdp-udp-lb/1.0"
     return response
 
+
 if __name__ == "__main__":
 
     link_info = get_link_info_by_interface(config.device_in)
     if link_info.get("IFLA_XDP", {}).get("IFLA_XDP_ATTACHED", None):
-        logging.error(f"A xdp program is being attached to nic {config.device_in}: {json.dumps(link_info.get('IFLA_XDP', {}))}")
+        logging.error(
+            f"A xdp program is being attached to nic {config.device_in}: {json.dumps(link_info.get('IFLA_XDP', {}))}")
         logging.error("Exiting ...")
         sys.exit(1)
 
