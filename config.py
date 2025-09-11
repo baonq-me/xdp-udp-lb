@@ -1,4 +1,5 @@
 import os
+import sys
 from os import cpu_count
 import dotenv
 from bcc import BPF
@@ -33,3 +34,26 @@ flags = {
     # Replace existing XDP program
     "XDP_FLAGS_REPLACE": BPF.XDP_FLAGS_REPLACE,
 }
+
+log_config = {
+    "version": 1,
+    "formatters": {
+        "default": {
+            "format": "[%(asctime)s,%(msecs)d] [%(filename)s:%(lineno)d] [%(levelname)s] %(message)s",
+            "datefmt": "%Y-%m-%d %H:%M:%S",
+        },
+    },
+    "handlers": {
+        "default": {
+            "formatter": "default",
+            "class": "logging.StreamHandler",
+            "stream": sys.stdout,
+        },
+    },
+    "loggers": {
+        "uvicorn": {"handlers": ["default"], "level": "INFO"},
+        "uvicorn.error": {"handlers": ["default"], "level": "INFO", "propagate": False},
+        "uvicorn.access": {"handlers": ["default"], "level": "INFO", "propagate": False},
+    },
+}
+
