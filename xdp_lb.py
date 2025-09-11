@@ -439,27 +439,7 @@ if __name__ == "__main__":
             host=config.listen_host,
             port=config.listen_port,
             workers=1,  # enforce single worker,
-            log_config={
-                "version": 1,
-                "formatters": {
-                    "default": {
-                        "format": "[%(asctime)s,%(msecs)d] [%(filename)s:%(lineno)d] [%(levelname)s] %(message)s",
-                        "datefmt": "%Y-%m-%d %H:%M:%S",
-                    },
-                },
-                "handlers": {
-                    "default": {
-                        "formatter": "default",
-                        "class": "logging.StreamHandler",
-                        "stream": sys.stdout,
-                    },
-                },
-                "loggers": {
-                    "uvicorn": {"handlers": ["default"], "level": "INFO"},
-                    "uvicorn.error": {"handlers": ["default"], "level": "INFO", "propagate": False},
-                    "uvicorn.access": {"handlers": ["default"], "level": "INFO", "propagate": False},
-                },
-            }
+            log_config=config.log_config
         )
     except Exception as e:
         logging.error(e)
