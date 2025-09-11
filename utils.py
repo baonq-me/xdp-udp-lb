@@ -1,12 +1,14 @@
 import logging
 import socket
 import fcntl
-import struct
 import subprocess
 
+from object import *
+import struct
 import netifaces
 from pyroute2 import IPRoute
 import json
+
 import ast
 
 def get_ip_address(ifname: str) -> str:
@@ -19,7 +21,7 @@ def get_ip_address(ifname: str) -> str:
         )[20:24]
     )
 
-def mac_string_to_int(mac_str: str):
+def mac_string_to_int(mac_str: str) -> tuple:
     return tuple(int(b, 16) for b in mac_str.split(":"))
 
 def get_mac_tuple(interface: str):
@@ -135,4 +137,41 @@ def get_mac_str_by_ip(ip):
             fields = line.split()
             if fields[0] == ip:
                 return fields[3]  # MAC address column
+
     return None
+
+def make_backend(ip_str: str, port: int, mac: tuple[int]):
+    logging.info(f"Backend {ip_str}:{port} via mac " + "[" + ", ".join(f"0x{b:02X}" for b in mac) + "]")
+    return Backend(
+        ip=struct.unpack("I", socket.inet_aton(ip_str))[0],
+        port=socket.htons(port),
+        pad=0,
+        mac=(ctypes.c_ubyte * 6)(*mac)
+    )
+
+
+def get_backends(config_servers: list[tuple[str, int]]):
+    backends = []
+    for i, (ip, port) in enumerate(config_servers):
+        ip_mac = get_route_mac(ip)
+        if not ip_mac:
+            default_gw_mac = get_mac_str_by_ip(get_default_gateway_ip())
+            logging.warning(f"Backend IP {ip} not exist in routing table, using default gateway mac address {default_gw_mac}")
+            backends.append(make_backend(ip, port, mac_string_to_int(default_gw_mac)))
+
+        else:
+            backends.append(make_backend(ip, port, ip_mac["mac_array"]))
+
+    return backends
+
+def parse_config_backends(s):
+    result = []
+    for entry in s.split(","):
+        if ":" in entry:
+            host, port = entry.rsplit(":", 1)
+        else:
+            # Assume last 4–5 digits are the port if no colon
+            # (works for your "172.30.23.25555" example)
+            host, port = entry[:-5], entry[-5:]
+        result.append((host.strip(), int(port)))
+    return result
