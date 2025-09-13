@@ -39,30 +39,19 @@ packet_latency_bucket = collections.deque(maxlen=256 * 1024)
 
 xdp_collector_registry = CollectorRegistry()
 
-packet_processed_rate = Gauge(name="xdp_packet_processed_rate", documentation="Instant processed packets per second",
-                              labelnames=["cpu", "interface", "host"], registry=xdp_collector_registry)
-packet_processed = Gauge(name="xdp_packet_processed", documentation="Packets processed",
-                         labelnames=["cpu", "interface", "host"], registry=xdp_collector_registry)
-packet_latency = Gauge(name="xdp_packet_latency_ns", documentation="Packets processing latency in nanoseconds",
-                       labelnames=["type", "interface", "host"], registry=xdp_collector_registry)
+packet_processed_rate = Gauge(name="xdp_packet_processed_rate", documentation="Instant processed packets per second", labelnames=["cpu", "interface", "host"], registry=xdp_collector_registry)
+packet_processed = Gauge(name="xdp_packet_processed", documentation="Packets processed", labelnames=["cpu", "interface", "host"], registry=xdp_collector_registry)
+packet_latency = Gauge(name="xdp_packet_latency_ns", documentation="Packets processing latency in nanoseconds", labelnames=["type", "interface", "host"], registry=xdp_collector_registry)
 
-interface_stat = Gauge(name="xdp_interfaces_stat", documentation="Interface runtime stats",
-                       labelnames=["interface", "type", "host"], registry=xdp_collector_registry)
-interface_ethtool_stat = Gauge(name="xdp_interfaces_ethtool_stat",
-                               documentation="Interface runtime stats from ethtool, may contains vendor-specific stats",
-                               labelnames=["interface", "type", "host"], registry=xdp_collector_registry)
-interface_spec = Gauge(name="xdp_interfaces_spec", documentation="Interface specifications",
-                       labelnames=["interface", "type", "host"], registry=xdp_collector_registry)
-interface_qdisk = Gauge(name="xdp_interface_qdisk", documentation="Interface queuing disciplines",
-                        labelnames=["interface", "host", "qdisk"], registry=xdp_collector_registry)
+interface_stat = Gauge(name="xdp_interfaces_stat", documentation="Interface runtime stats",labelnames=["interface", "type", "host"], registry=xdp_collector_registry)
+interface_ethtool_stat = Gauge(name="xdp_interfaces_ethtool_stat", documentation="Interface runtime stats from ethtool, may contains vendor-specific stats", labelnames=["interface", "type", "host"], registry=xdp_collector_registry)
+interface_spec = Gauge(name="xdp_interfaces_spec", documentation="Interface specifications", labelnames=["interface", "type", "host"], registry=xdp_collector_registry)
+interface_qdisk = Gauge(name="xdp_interface_qdisk", documentation="Interface queuing disciplines", labelnames=["interface", "host", "qdisk"], registry=xdp_collector_registry)
 
-xdp_mode = Gauge(name="xdp_mode", documentation="Information", labelnames=["interface", "host", "mode"],
-                 registry=xdp_collector_registry)
-xdp_prog_id = Counter(name="xdp_prog_id", documentation="Information", labelnames=["interface", "host"],
-                      registry=xdp_collector_registry)
+xdp_mode = Gauge(name="xdp_mode", documentation="Information", labelnames=["interface", "host", "mode"], registry=xdp_collector_registry)
+xdp_prog_id = Counter(name="xdp_prog_id", documentation="Information", labelnames=["interface", "host"], registry=xdp_collector_registry)
 
-xdp_time_start = Gauge(name="xdp_time_start", documentation="Epoch time in seconds when started",
-                       labelnames=["interface", "host"], registry=xdp_collector_registry)
+xdp_time_start = Gauge(name="xdp_time_start", documentation="Epoch time in seconds when started", labelnames=["interface", "host"], registry=xdp_collector_registry)
 
 
 def read_total_packets_processed():
@@ -244,14 +233,24 @@ def add_new_backends(new_backends: List[BackendRequest]):
     return get_configs()
 
 
-'''@app.delete("/api/v1/backends", summary="Delete backends")
-def delete_backend():
+@app.delete("/api/v1/backends", summary="Delete backends")
+def delete_backend(deleted_backends: List[BackendRequest]):
 
-    backends = get_backends()[:-1]
+    new_backends = []
+    for current_be in get_backends_from_xdp():
+        for deleted_be in deleted_backends:
+            if current_be["ip"] == deleted_be.ip and current_be["port"] == deleted_be.port:
+                continue
 
-    set_backends(config.filter_ip, backends)
+            new_backends.append(make_backend(
+                current_be["ip"],
+                current_be["port"],
+                mac_string_to_int(current_be["mac"]),
+            ))
 
-    return get_configs()'''
+    set_backends(new_backends)
+
+    return get_configs()
 
 
 def set_filters(filter_ip, destination_ports):
